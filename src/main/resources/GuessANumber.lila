@@ -1,0 +1,60 @@
++sys.Terminal;
++math.Random;
+
+// This defines a new triggerable message as child of Terminal
+NumberGuessGame@Terminal {
+  // this sets message property "println" to result of one of the lines with tabulation increased by one
+  println:
+    // by pushing value to the next line and increasing tabulation we created branching and defined the first branch
+    username + ", you lost. The number was: " + number
+      // this is a branch trigger condition. It is applied to all passing messages and 
+      // controlled by it branch will be triggered only when the condition is true
+      ?-- (attempts >= 3)
+    // by returning to branching tabulation level we create another branch
+    "Congratulations " + username + ", you win!" 
+      ?-- (input == number)
+        // the "<--" operator "triggers" ALL lines above it except 
+        // lines that can be triggered by another trigger defined in the same block at the same or greater tabulation level
+        <-- Terminal {
+          println: "Wrong number, " + username + ". Try again?"
+          attempts++
+            // this is bounce operator and it triggers this branch whenever produced message "bounces" (gets discarded by all conditions)
+            <~@
+          attempts: 0
+          number: ~Random
+          println: "Guess a number?"
+          input: Number
+          username: <-- Terminal {
+            println: "Enter your name: "
+            input: String
+          } <~~
+        }
+}
+
++sys.Files
++sys.Shell
+Copy@Files {
+  <-- Shell [
+    mv $source $destination
+  ] ?-- Terminal {
+    println: "Do you want to move $source to ${destination}?"
+    input: Boolean
+  }
+  source: .[0]
+  destination: .[1]
+    <~~
+}
+
++sys.socket.port.http.Server
+
+Request@Server {
+  Server: "Linker"
+  /*
+    This is a very interesting line. 
+    The "<~>" operator does multiple things:
+      - it tells compiler that this message is extensible, which means that it allows other messages to be added as children to this message
+      - causes this branch to be triggered every time any of its children are triggered
+      - returns resulting message of triggered child
+  */
+  .: <~> 
+}

@@ -1,0 +1,110 @@
+options {
+  STATIC = false;
+}
+
+PARSER_BEGIN(LilaParser)
+
+package com.onkiup.linker.parser;
+
+import java.util.List;
+import java.util.LinkedList;
+import com.onkiup.linker.parser.*;
+
+public class LilaParser {
+
+}
+
+PARSER_END(LilaParser)
+
+SKIP: {
+  " "
+}
+
+TOKEN: { <TAB: "\t"> }
+TOKEN: { <CR: "\r" | "\n" | "\r\n" > }
+TOKEN: { <AT: "@"> }
+TOKEN: { <TRIGGER: "<--" > }
+TOKEN: { <FILTER: "?--"> }
+TOKEN: { <L_SQBRACKET: "["> }
+TOKEN: { <R_SQBRACKET: "]"> }
+TOKEN: { <L_BRACKET: "{"> }
+TOKEN: { <R_BRACKET: "}"> }
+TOKEN: { <DOT: "."> }
+TOKEN: { <STREAM: "~~"> }
+TOKEN: { <YIELD: "~"> }
+TOKEN: { <COLON: ":"> }
+TOKEN: { <L_PAREN: "("> }
+TOKEN: { <R_PAREN: ")"> }
+TOKEN: { <DBL_QUOTE: "\""> }
+TOKEN: { <QUOTE: "'"> }
+TOKEN: { <EQUALS: "="> }
+TOKEN: { <SEMICOLON: ";"> }
+TOKEN: { <MINUS: "-"> }
+TOKEN: { <SLASH: "/"> }
+TOKEN: { <BACKSLASH: "\\"> }
+TOKEN: { <LESS: "<"> }
+TOKEN: { <GREATER: ">"> }
+
+TOKEN: { <PLUS: "+"> }
+
+TOKEN : {
+  <NAME: (["a"-"z", "A"-"Z"]["a"-"z", "A"-"Z", "_", "0"-"9"])>
+}
+
+TOKEN: {
+  <NUMBER: (["0"-"9"])> 
+}
+
+double doubleNumber(): {
+  Token base;
+  Token fract;
+} {
+  base = <NUMBER>
+  <DOT>
+  fract = <NUMBER>
+  { return Double.parseDouble(base.image + "." + fract.image); }
+}
+
+ImportOperator importStatement(): {
+  Token part;
+  List<String> path = new LinkedList<String>();
+} {
+  <PLUS>
+  (part = <NAME> { path.add(part.image); } <DOT>) *
+  <CR>
+  { return new ImportOperator(new Lookup(path)); }
+}
+
+MemberReference memberReference(): {
+  Token name;
+  Token parent;
+} {
+  name = <Name>
+  <AT>
+  parent = <Name>
+  { return new MemberReference(name.image, parent.image); }
+}
+
+IValueExpression<Message> messageDefinition(): {
+
+} {
+  <L_BRACKET>
+  <R_BRACKET>
+}
+
+NamedReference<IValueExpression<?>> FieldDefinition(): {
+  Token token;
+  IValueExpression<?> expression;
+} {
+  token = <NAME>
+  <COLON>
+  expression = fieldExpression()
+  { return new NamedReference<IValueExpression<?>>(token.image, expression); }
+}
+
+IValueExpression<?> fieldExpression(): {
+  IValueExpression<?> result;
+} {
+  result = branching() | scalar() | triggerExpression()
+  { return result; }
+}

@@ -1,0 +1,16 @@
++sys.Files
++sys.Terminal
++sys.Shell
+
+Rename@Files {
+  <-- Shell [
+    mv $source $target
+  ] ?-- Confirm@Terminal {
+    message: "Do you want to move $source to $target"
+  }
+}
+
+Confirm@Terminal {
+  println: message
+  input: Boolean
+}
