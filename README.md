@@ -7,6 +7,7 @@ Linker-parser grammar rules are defined as Java classes using a set of simple co
 * Terminal tokens defined using static String fields by setting their values to the token itself;
 * Capture tokens defined as String fields with CapturePattern annotation;
 * Token repititions defined as array fields of corresponding to the token type;
+* Alternatives can be defined as fields of an interface type - each class that implements the interface will be processed as an alternative token; 
 * Repetitions are always greedy;
 * Repetition limits can be defined using Limit annotation;
 
@@ -21,8 +22,12 @@ public class MultilineComment implements Rule {
   private static final String CLOSE_MARKER = "*/";
 }
 ```
+## Creting a parser
+Invoke `TokenGrammar.forClass(Class<? extends Rule> rule)` with your root token class as parameter.
 
-## Current limitations:
+## Parsing 
+
+## Current limitations
 * Token repetitions are not yet supported.
 
 ## Version History
