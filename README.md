@@ -1,5 +1,5 @@
 # linker-parser: JavaCC on steroids.
-Linkr-parser is a FSM-backed LL(k) parser that uses Java language to define grammar rules. 
+Linker-parser is a FSM-backed LL(k) parser that uses Java language to define grammar rules. 
 
 ## Creating a grammar rule
 Linker-parser grammar rules are defined as Java classes using a set of simple conventions:
