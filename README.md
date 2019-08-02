@@ -26,6 +26,7 @@ public class MultilineComment implements Rule {
 Invoke `TokenGrammar.forClass(Class<? extends Rule> rule)` with your root token class as parameter.
 
 ## Parsing 
+Invoking `TokenGrammar::read(Reader source)` will read and parse the text from the source into a token and will return the resulting token as an object.
 
 ## Current limitations
 * Token repetitions are not yet supported.
