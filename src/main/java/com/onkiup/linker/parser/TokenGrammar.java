@@ -57,7 +57,7 @@ public class TokenGrammar<C, X extends Rule<C>> {
             Class<?> fieldType = field.getType();
             field.setAccessible(true);
             if (fieldType.isArray()) {
-
+              
             } else if (fieldType.isInterface() || Modifier.isAbstract(fieldType.getModifiers())) {
                 matchers[i] = prepareJunction((Class<? extends Rule<C>>) fieldType);
             } else {
