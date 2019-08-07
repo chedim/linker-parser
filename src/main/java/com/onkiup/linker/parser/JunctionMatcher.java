@@ -11,13 +11,16 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-public class JunctionMatcher<X> implements TokenMatcher, Tokenizer<X> {
-  private Map<Class<?>, TokenGrammar<?>> grammarCache = new HashMap<>();
+// in 0.2.2:
+// - Added  C type parameter
+// - bound X to Rule
+public class JunctionMatcher<C, X extends Rule<C>> implements TokenMatcher, Tokenizer<C, X> {
+  private Map<Class<?>, TokenGrammar<C, ?>> grammarCache = new HashMap<>();
 
   private Map<Class<? extends X>, PartialToken> variants;
-  private Function<Class<?>, TokenGrammar<?>> grammarProvider;
+  private Function<Class<? extends Rule<C>>, TokenGrammar<C, ?>> grammarProvider;
 
-  public JunctionMatcher(Collection<Class<? extends X>> variants, Function<Class<?>, TokenGrammar<?>> grammarProvider) {
+  public JunctionMatcher(Collection<Class<? extends X>> variants, Function<Class<? extends Rule<C>>, TokenGrammar<C, ? extends X>> grammarProvider) {
     this.variants = variants.stream().collect(Collectors.toMap(v->v, v -> {
       try {
         return new PartialToken(v.newInstance());
@@ -35,12 +38,12 @@ public class JunctionMatcher<X> implements TokenMatcher, Tokenizer<X> {
   }
   
   @Override
-  public X tokenize(NestingReader source, boolean evaluate) {
+  public X tokenize(NestingReader source, C context) {
     Set<Class<? extends X>> variantTypes = variants.keySet();
  
     Map<Class<? extends X>, TokenTestResult> prevMatches = null;
     Map<Class<? extends X>, StringBuilder> buffers = new HashMap<>();
-    char nextChar;
+    int nextChar;
     final StringBuffer spilloverBuffer = new StringBuffer();
     final AtomicInteger spilloverOffset = new AtomicInteger();
     Supplier<Integer> charSupplier = () -> {
@@ -59,7 +62,7 @@ public class JunctionMatcher<X> implements TokenMatcher, Tokenizer<X> {
 
 
     try {
-      while (-1 != (nextChar = (char) (int) charSupplier.get())) {
+      while (-1 != (nextChar = charSupplier.get())) {
         Set<Class<? extends X>> failed = new HashSet<>();
         Map<Class<? extends X>, TokenTestResult> lastMatches = new HashMap<>();
         boolean contin = false;
@@ -68,11 +71,11 @@ public class JunctionMatcher<X> implements TokenMatcher, Tokenizer<X> {
             buffers.put(variantType, new StringBuilder());
           }
           StringBuilder buffer = buffers.get(variantType);
-          buffer.append(nextChar);
+          buffer.append((char)nextChar);
 
           PartialToken partial = variants.get(variantType);
 
-          TokenGrammar<? extends X> grammar = (TokenGrammar<? extends X>) grammarProvider.apply(variantType);
+          TokenGrammar<C, ? extends X> grammar = (TokenGrammar<C, ? extends X>) grammarProvider.apply(variantType);
           Field nextField = grammar.getFields()[partial.getPopulatedFieldCount()];
           TokenMatcher nextMatcher = grammar.getMatchers()[partial.getPopulatedFieldCount()];
 
@@ -84,7 +87,7 @@ public class JunctionMatcher<X> implements TokenMatcher, Tokenizer<X> {
             }
             Tokenizer tokenizer = (Tokenizer) nextMatcher;
             source.nest(reader -> {
-              Object result = tokenizer.tokenize(reader, evaluate);
+              Object result = tokenizer.tokenize(reader, context);
               if (result != null) {
                 partial.populateField(nextField, result);
                 return true;
@@ -111,10 +114,10 @@ public class JunctionMatcher<X> implements TokenMatcher, Tokenizer<X> {
         }
 
         if (lastMatches.size() == 1) {
-          Class winnerType = lastMatches.keySet().iterator().next();
-          TokenGrammar<X> grammar = (TokenGrammar<X>) grammarProvider.apply(winnerType);
+          Class<? extends X> winnerType = lastMatches.keySet().iterator().next();
+          TokenGrammar<C, ? extends X> grammar = (TokenGrammar<C, ? extends X>) grammarProvider.apply(winnerType);
           StringBuilder buffer = buffers.get(winnerType);
-          return grammar.read(buffer, source, evaluate, (PartialToken<X>) variants.get(winnerType));
+          return (X) grammar.read(buffer, source, context, variants.get(winnerType));
         }
 
         variantTypes.removeAll(failed);

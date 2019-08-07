@@ -7,7 +7,11 @@ import java.lang.reflect.Modifier;
 import java.util.HashSet;
 import java.util.Set;
 
-public final class PartialToken<X> {
+// in 0.2.2:
+// - bound X to Rule
+// - added C type parameter
+// - added evauation logic
+public final class PartialToken<C, X extends Rule<C>> {
   private X token;
   private Set<Field> populatedFields = new HashSet<>();
 
@@ -15,7 +19,10 @@ public final class PartialToken<X> {
     this.token = token;
   }
 
-  public X getToken() {
+  public X getToken(C context) {
+    if (context != null) {
+      token.accept(context);
+    }
     return token;
   }
 

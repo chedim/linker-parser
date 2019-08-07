@@ -1,0 +1,3 @@
+use src/main/java:src/test/java
+stop at com.onkiup.linker.parser.TokenGrammarTest:103
+run

@@ -12,7 +12,10 @@ import org.reflections.scanners.SubTypesScanner;
 import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
 
-public class TokenGrammar<X> {
+// at 0.2.2:
+// - added "C" type parameter
+// - replaced all "evaluate" flags with context
+public class TokenGrammar<C, X extends Rule<C>> {
   private Class<X> type;
   private Field[] fields;
   private TokenMatcher[] matchers;
@@ -21,9 +24,9 @@ public class TokenGrammar<X> {
         .setScanners(new SubTypesScanner(true))
     );
 
-  private JunctionMatcher<X> interfaceMatcher;
+  private JunctionMatcher<C, X> interfaceMatcher;
 
-  public static <X extends Rule> TokenGrammar<X> forClass(Class<X> type) {
+  public static <C, X extends Rule<C>> TokenGrammar<C, X> forClass(Class<X> type) {
     return new TokenGrammar<>(type);
   }
 
@@ -53,8 +56,10 @@ public class TokenGrammar<X> {
           } else {
             Class<?> fieldType = field.getType();
             field.setAccessible(true);
-            if (fieldType.isInterface() || Modifier.isAbstract(fieldType.getModifiers())) {
-                matchers[i] = prepareJunction(fieldType);
+            if (fieldType.isArray()) {
+
+            } else if (fieldType.isInterface() || Modifier.isAbstract(fieldType.getModifiers())) {
+                matchers[i] = prepareJunction((Class<? extends Rule<C>>) fieldType);
             } else {
               if (Number.class.isAssignableFrom(fieldType)) {
                 matchers[i] = new NumberMatcher((Class<? extends Number>) fieldType);
@@ -77,18 +82,18 @@ public class TokenGrammar<X> {
     }
   }
 
-  private <Y> JunctionMatcher<Y> prepareJunction(Class<Y> parent) {
+  private <C, Y extends Rule<C>> JunctionMatcher<C, Y> prepareJunction(Class<Y> parent) {
     Collection<Class<? extends Y>> variants = reflections.getSubTypesOf(parent).stream()
       .filter(TokenGrammar::isConcrete)
       .collect(Collectors.toList());
 
-    return new JunctionMatcher<Y>(variants, t -> forClass((Class<? extends Rule>) t));
-  }
+    return new JunctionMatcher<C, Y>(variants, t -> forClass((Class<Y>) t));
+ }
 
-  private <Y> Y recurse(Tokenizer<Y> tokenizer, NestingReader reader, boolean evaluate) {
+  private <Y extends Rule<C>> Y recurse(Tokenizer<C, Y> tokenizer, NestingReader reader, C context) {
     AtomicReference<Y> result = new AtomicReference<>();
     reader.nest(source -> {
-      Y token = tokenizer.tokenize(source, evaluate);
+      Y token = tokenizer.tokenize(source, context);
       result.set(token);
       return token != null;
     });
@@ -113,11 +118,11 @@ public class TokenGrammar<X> {
   }
 
   public X parse(Reader source) throws SyntaxError {
-    return parse(source, false);
+    return parse(source, null);
   }
 
-  public X parse(Reader source, boolean evaluate)  throws SyntaxError {
-    X result = read(source, evaluate);
+  public X parse(Reader source, C context)  throws SyntaxError {
+    X result = read(source, context);
     StringBuilder tail = new StringBuilder();
     try {
       int nextChar;
@@ -134,29 +139,29 @@ public class TokenGrammar<X> {
     return result;
   }
 
-  public X read(Reader source, boolean evaluate) throws SyntaxError {
+  public X read(Reader source, C context) throws SyntaxError {
     try {
-      PartialToken<X> partial = null;
+      PartialToken<C, X> partial = null;
       if (isConcrete(type)) {
-        partial = new PartialToken<X>(type.newInstance());
+        partial = new PartialToken<C, X>(type.newInstance());
       } else if (interfaceMatcher == null) {
         throw new IllegalStateException("root matcher is null");
       }
-      return read(source, evaluate, partial);
+      return read(source, context, partial);
     } catch (IllegalAccessException | InstantiationException e) {
       throw new RuntimeException(e);
     }
   }
 
-  public X read(Reader source, boolean evaluate, PartialToken<X> partial) throws SyntaxError {
-    return read(new StringBuilder(), source, evaluate, partial);
+  public X read(Reader source, C context, PartialToken<C, X> partial) throws SyntaxError {
+    return read(new StringBuilder(), source, context, partial);
   }
 
-  public X read(StringBuilder buffer, Reader source, boolean evaluate, PartialToken<X> partial) throws SyntaxError {
+  public X read(StringBuilder buffer, Reader source, C context, PartialToken<C, X> partial) throws SyntaxError {
     NestingReader reader = source instanceof NestingReader ? (NestingReader) source : new NestingReader(source);
 
     if (interfaceMatcher != null) {
-      return recurse((Tokenizer<X>) interfaceMatcher, reader, evaluate);
+      return recurse((Tokenizer<C, X>) interfaceMatcher, reader, context);
     }
 
     try {
@@ -178,7 +183,7 @@ public class TokenGrammar<X> {
               break;
             } else if (testResult.isRecurse()) {
               reader.pushBack((char)nextChar);
-              Object token = recurse((Tokenizer<?>) matcher, reader, evaluate);
+              Object token = recurse((Tokenizer<C, ?>) matcher, reader, context);
               if (token == null && !isOptional) {
                 throw new SyntaxError("Expected <[" + field.getType().getCanonicalName() + "]> but got <[" + buffer + "]>");
               }
@@ -205,7 +210,7 @@ public class TokenGrammar<X> {
           }
         } while (!reachedEof); 
       }
-      return partial.getToken();
+      return partial.getToken(context);
     } catch (Exception e) {
       throw new RuntimeException(e);
     }

@@ -1,13 +1,15 @@
 package com.onkiup.linker.parser;
 
 import java.io.StringReader;
+import java.util.HashMap;
+import java.util.Map;
 
-import org.junit.Test;
 import org.junit.Assert;
+import org.junit.Test;
 
 public class TokenGrammarTest {
 
-  public static interface Junction extends Rule {
+  public static interface Junction extends Rule<Object> {
   
   }
 
@@ -30,20 +32,35 @@ public class TokenGrammarTest {
 
   }
 
+  public static class ArrayToken implements Rule<Object> {
+    private Junction[] tokens = new Junction[3];
+  }
+
+  public static class Evaluatable implements Rule<Map<String, Object>> {
+    private static final String VAR_MARKER = "$";
+    @CapturePattern(pattern = "[^\\s\\n;]+")
+    private String varName;
+
+    @Override
+    public void accept(Map<String, Object> context) {
+      context.put(varName, context.get(varName) + "test");
+    }
+  }
+
   @Test
   public void testGrammar() throws Exception {
-    TokenGrammar<TestGrammarDefinition> grammar = TokenGrammar.forClass(TestGrammarDefinition.class);
+    TokenGrammar<?, TestGrammarDefinition> grammar = TokenGrammar.forClass(TestGrammarDefinition.class);
     Assert.assertNotNull(grammar);
-    TestGrammarDefinition token = grammar.parse(new StringReader(":test"), false);
+    TestGrammarDefinition token = grammar.parse(new StringReader(":test"));
     Assert.assertEquals("test", token.command);
   }
 
   @Test
   public void testTrailingCharactersException() throws Exception {
-    TokenGrammar<TestGrammarDefinition> grammar = TokenGrammar.forClass(TestGrammarDefinition.class);
+    TokenGrammar<?, TestGrammarDefinition> grammar = TokenGrammar.forClass(TestGrammarDefinition.class);
     Assert.assertNotNull(grammar);
     try {
-      TestGrammarDefinition result = grammar.parse(new StringReader(":test; :another;"), false);
+      TestGrammarDefinition result = grammar.parse(new StringReader(":test; :another;"));
       Assert.fail();
     } catch (Exception e) {
       // this is expected
@@ -52,7 +69,7 @@ public class TokenGrammarTest {
 
   @Test
   public void testJunction() throws Exception {
-    TokenGrammar<Junction> grammar = TokenGrammar.forClass(Junction.class);
+    TokenGrammar<Object, Junction> grammar = TokenGrammar.forClass(Junction.class);
     Assert.assertNotNull(grammar);
 
     Junction result = grammar.parse(new StringReader("// comment"));
@@ -63,7 +80,7 @@ public class TokenGrammarTest {
 
   @Test
   public void testCapture() throws Exception {
-    TokenGrammar<Junction> grammar = TokenGrammar.forClass(Junction.class);
+    TokenGrammar<Object, Junction> grammar = TokenGrammar.forClass(Junction.class);
     Assert.assertNotNull(grammar);
 
     Junction result = grammar.parse(new StringReader("/* comment */"));
@@ -72,8 +89,31 @@ public class TokenGrammarTest {
 
   @Test
   public void testEvaluation() throws Exception {
-    TokenGrammar<Evaluatable> grammr = TokenGrammar.forClass(Evaluatable.class);
+    TokenGrammar<Map<String, Object>, Evaluatable> grammar = TokenGrammar.forClass(Evaluatable.class);
 
+    Map<String, Object> context = new HashMap<>();
+    context.put("test", 100);
+
+    grammar.parse(new StringReader("$test"), context);
+    Assert.assertEquals("100test", context.get("test"));
+  }
+
+  @Test
+  public void testArrayCapture() throws Exception {
+    TokenGrammar<Object, ArrayToken> grammar = TokenGrammar.forClass(ArrayToken.class);
+    String test = ":hello; // comment\n/* multiline\ncomment */";
+
+    ArrayToken result = grammar.parse(new StringReader(test));
+    Assert.assertNotNull(result);
+    Assert.assertNotNull(result.tokens);
+
+    Junction[] tokens = result.tokens;
+    Assert.assertEquals(3, tokens.length);
     
+    Junction token = tokens[0];
+    Assert.assertTrue(token instanceof TestGrammarDefinition);
+    Assert.assertEquals("hello", ((TestGrammarDefinition) token).command);
+
+    Assert.assertTrue(false);
   }
 }
