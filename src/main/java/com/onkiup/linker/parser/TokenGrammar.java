@@ -15,14 +15,10 @@ import org.reflections.util.ConfigurationBuilder;
 // at 0.2.2:
 // - added "C" type parameter
 // - replaced all "evaluate" flags with context
-public class TokenGrammar<C, X extends Rule<C>> {
+public class TokenGrammar<C, X extends Rule<C>> extends AbstractTokenizer<C, X> {
   private Class<X> type;
   private Field[] fields;
   private TokenMatcher[] matchers;
-  private static final Reflections reflections  = new Reflections(new ConfigurationBuilder()
-        .setUrls(ClasspathHelper.forClassLoader(TokenGrammar.class.getClassLoader()))
-        .setScanners(new SubTypesScanner(true))
-    );
 
   private JunctionMatcher<C, X> interfaceMatcher;
 
@@ -34,7 +30,6 @@ public class TokenGrammar<C, X extends Rule<C>> {
     this.type = type;
     initialize();
   }
-
 
   protected void initialize() {
 
@@ -147,19 +142,139 @@ public class TokenGrammar<C, X extends Rule<C>> {
       } else if (interfaceMatcher == null) {
         throw new IllegalStateException("root matcher is null");
       }
-      return read(source, context, partial);
+      return read(new NestingReader(source), context, partial);
     } catch (IllegalAccessException | InstantiationException e) {
       throw new RuntimeException(e);
     }
   }
 
-  public X read(Reader source, C context, PartialToken<C, X> partial) throws SyntaxError {
-    return read(new StringBuilder(), source, context, partial);
+  private Set<Class, Matcher> matchers = new HashSet<>();
+
+  public Matcher getMatcher(Field field) {
+    Class ofType = field.getType();
+    if (Number.class.isAssignableFrom(ofType)) {
+      return new NumberMatcher();
+    } else if (String.class.isAssignableFrom(ofType)) {
+      
+    }
+    return null;
   }
 
-  public X read(StringBuilder buffer, Reader source, C context, PartialToken<C, X> partial) throws SyntaxError {
-    NestingReader reader = source instanceof NestingReader ? (NestingReader) source : new NestingReader(source);
+  public X tokenize(Reader source, C context) throws SyntaxError {
+    try {
+      Dequeue<PartialToken> trace = new ConcurrentLinkedDequeue<>();
+      trace.push(new PartialToken<C, X>(type.newInstance()));
+      int nextChar;
+      StringBuilder buffer = new StringBuilder();
 
+      do {
+        if (buffer.length() > 0) {
+          PartialToken token = trace.peekFirst();
+          Class type = token.getTokenType();
+          Field field = token.getCurrentField();
+          TokenTestResult testResult = null;
+
+          if (Rule.class.isAssignableFrom(type)) {
+            PartialToken child = new PartialToken(field.getType());
+            trace.addFirst(child);
+            continue;
+          } else if (Number.class.isAssignableFrom(type)){
+            Matcher matcher = token.matcher();
+            if (matcher == null) {
+              matcher = new NumberMatcher((Class<? extends Number>) type);
+              token.setMatcher(matcher);
+            }
+            testResult = matcher.apply(buffer);
+          } else if (String.class.isAssignableFrom(type)) {
+            Matcher matcher = token.getMatcher();
+            if (matcher == null) {
+              if (field == null) {
+                throw new RuntimeException("Unable to read directly to String");
+              }
+              if (Modifier.isStatic(field.getModifiers())) {
+                Object pattern = field.get(null);
+                if (pattern != null) {
+                  matcher = new TerminalMatcher(pattern.toString());
+                }
+              } else if (field.isAnnotationPresent(CapturePattern.class)) {
+                CapturePattern pattern = field.getAnnotation(CapturePattern.class);
+                matcher = new PatternMatcher(pattern);
+              }
+              token.setMatcher(matcher);
+            }
+            testResult = matcher.apply(buffer);
+          } else if (!isConcrete()) {
+            Class variant = token.getCurrentAlternative();
+            trace.addFirst(new PartialToken(variant));
+            continue;
+          } else if (type.isArray() {
+            Class elementType = type.getComponentType();
+            trace.addFirst(new PartialToken(elementType));
+            continue;
+          } else {
+            throw new RuntimeException("Unsupported token type: " + type);
+          }
+
+          if (testResult.isMatch()) {
+            String value = testResult.getToken();
+            token.populateField(value);
+            buffer = new StringBuilder(buffer.substring(testResult.getTokenLength()));
+          } else if (testResult.isFailed()){
+            trace.removeFirst();
+            PartialToken parent = trace.peekFirst();
+            parent.advanceAlternative();
+            if (!parent.hasAlternativesLeft()) {
+              throw new SyntaxError("Expected " +
+                  (field == null) ? type : field) +
+                " but got <[" + buffer + "]>";
+            }
+          }
+          
+          // tracing back
+          while (token.isPopulated()) {
+            PartialToken parent = trace.removeFirst();
+            if (isConcrete(parent.getTokenType())) {
+              // token evaluation happens here
+              //
+              field = token.getCurrentField();
+              Object result = token.getToken(context);
+
+              token = trace.peekFirst();
+              if (token == null) {
+                return (X) result;
+              }
+              field = token.getCurrentField();
+
+              if (token.getTokenType().isArray()) {
+                token.add(result);
+                if (field != null) {
+                  CaptureLimit limit = field.getAnnotation(CaptureLimit.class);
+                  if (limit != null && limit.max() == token.getCollectionSize()) {
+                    token.setPopulated();
+                  }
+                }
+              } else {
+                token.populateField(result);
+              }
+            }
+          }
+        } 
+
+        nextChar = source.read();
+        if (nextChar > 0) {
+          buffer.append((char) nextChar);
+        } else if (testResult != null && testResult.isContinue()) {
+          
+        }
+      } while(buffer.size() > 0);
+    } catch (SyntaxError se) {
+      throw se;
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  public X read(NestingReader source, C context, PartialToken<C, X> partial) throws SyntaxError {
     if (interfaceMatcher != null) {
       return recurse((Tokenizer<C, X>) interfaceMatcher, reader, context);
     }
