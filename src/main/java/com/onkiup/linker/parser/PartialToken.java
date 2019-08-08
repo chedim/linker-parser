@@ -4,8 +4,16 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Set;
+
+import org.reflections.Reflections;
+import org.reflections.scanners.SubTypesScanner;
+import org.reflections.util.ClasspathHelper;
+import org.reflections.util.ConfigurationBuilder;
 
 // in 0.2.2:
 // - bound X to Rule
@@ -26,7 +34,7 @@ public final class PartialToken<C, X> {
   private Collection<Class<? extends X>> variants;
   private LinkedList<Object> collection = new LinkedList<>();
   private boolean populated = false;
-  private Matcher<X> matcher;
+  private TokenMatcher matcher;
 
   protected PartialToken(Class<X> tokenType) {
     this.tokenType = tokenType;
@@ -34,9 +42,9 @@ public final class PartialToken<C, X> {
       variants = reflections.getSubtypesOf(type).stream()
         .filter(TokenGrammar::isConcrete)
         .collect(Collectors.toList());
-    } else if (Rule.class.isAssignableFrom(tokenType) {
+    } else if (Rule.class.isAssignableFrom(tokenType)) {
       this.fields = tokenType.getDeclaredFields();
-      this.values[] = new Object[this.fields.length];
+      this.values = new Object[this.fields.length];
     } else {
       this.fields = new Field[1];
       this.values = new Object[1];
@@ -51,7 +59,7 @@ public final class PartialToken<C, X> {
     try {
       if (Rule.class.isAssignableFrom(rokenType)) {
         token = tokenType.newInstance();
-        for (int i = 0; i < fields.length()) {
+        for (int i = 0; i < fields.length(); i++) {
           Field field = fields[i];
           try {
             if (!Modifier.isFinal(field.getModifiers())) {
@@ -66,9 +74,9 @@ public final class PartialToken<C, X> {
           } catch (Exception e) {
             throw new RuntimeException("Failed to populate token field '" + field + "' with value '" + value + "'", e);
           }
-        } else {
-          token = convert(tokenType, values[0]);
         }
+      } else {
+        token = convert(tokenType, values[0]);
       }
 
       if (context != null && token instanceof Rule) {
@@ -82,8 +90,7 @@ public final class PartialToken<C, X> {
 
   public X getToken() {
     return token;
-  }
-
+  } 
   public Class<X> getTokenType() {
     return tokenType;
   }
@@ -92,7 +99,7 @@ public final class PartialToken<C, X> {
     return fields;
   }
 
-  public Field getNextField() {
+  public Field getCurrentField() {
     return fields[populatedFields];
   }
 
@@ -169,11 +176,11 @@ public final class PartialToken<C, X> {
     return collection;
   }
 
-  public void setMatcher(Matcher<X> matcher) {
+  public void setMatcher(TokenMatcher matcher) {
     this.matcher = matcher;
   }
 
-  public Matcher<X> getMatcher() {
+  public TokenMatcher getMatcher() {
     return this.matcher;
   }
 }
