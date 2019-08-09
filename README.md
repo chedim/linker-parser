@@ -1,5 +1,5 @@
 # linker-parser: JavaCC on steroids.
-Linker-parser is a FSM-backed LL(k) parser that uses Java language to define grammar rules. 
+Linker-parser is a FSM-backed non-recursive top-down depth-first LL(k) parser that uses Java language to define grammar rules. 
 
 ## Creating a grammar rule
 Linker-parser grammar rules are defined as Java classes using a set of simple conventions:
@@ -27,6 +27,9 @@ Invoke `TokenGrammar.forClass(Class<? extends Rule> rule)` with your root token 
 
 ## Parsing 
 Invoking `TokenGrammar::parse(Reader source)` will read and parse the text from the source into a token and will return the resulting token as an object.
+
+## Transpiling/Compiling
+Linker-parser provides support for transpiling into other languages via Rule::transpile hook. Currently this feature is limited to one target language.
 
 ## Current limitations
 * Token repetitions are not yet supported.
