@@ -32,11 +32,11 @@ public class TokenTestResult {
   }
 
   public boolean isContinue() {
-    return result == TestResult.MATCH_CONTINUE;
+    return result == TestResult.CONTINUE;
   }
 
-  public boolean isRecurse() {
-    return result == TestResult.RECURSE;
+  public boolean isMatchContinue() {
+    return result == TestResult.MATCH_CONTINUE;
   }
 }
 

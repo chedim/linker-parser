@@ -58,14 +58,14 @@ public class TokenGrammar<C, X extends Rule<C>> {
       trace.push(new PartialToken<C, X>(type));
       int nextChar;
       StringBuilder buffer = new StringBuilder();
+      TokenTestResult testResult = null;
 
       do {
-        if (buffer.length() > 0) {
-          PartialToken<C, ?> token = trace.peekFirst();
-          Class type = token.getTokenType();
-          Field field = token.getCurrentField();
-          TokenTestResult testResult = null;
+        PartialToken<C, ?> token = trace.peekFirst();
+        Class type = token.getTokenType();
+        Field field = token.getCurrentField();
 
+        if (buffer.length() > 0) {
           if (Rule.class.isAssignableFrom(type)) {
             PartialToken child = new PartialToken(field.getType());
             trace.addFirst(child);
@@ -122,43 +122,49 @@ public class TokenGrammar<C, X extends Rule<C>> {
               );
             }
           }
-          
-          // tracing back
-          while (token.isPopulated()) {
-            PartialToken<C, ?> parent = (PartialToken<C, ?>) trace.removeFirst();
-            if (isConcrete(parent.getTokenType())) {
-              // token evaluation happens here
-              field = token.getCurrentField();
-              Object result = token.finalize(context);
-
-              token = trace.peekFirst();
-              if (token == null) {
-                return (X) result;
-              }
-              field = token.getCurrentField();
-
-              if (token.getTokenType().isArray()) {
-                token.add(result);
-                if (field != null) {
-                  CaptureLimit limit = field.getAnnotation(CaptureLimit.class);
-                  if (limit != null && limit.max() == token.getCollectionSize()) {
-                    token.setPopulated();
-                  }
-                }
-              } else {
-                token.populateField(result);
-              }
-            }
-          }
         } 
-
+          
         nextChar = source.read();
         if (nextChar > 0) {
-          buffer.append((char) nextChar);
-        } else if (testResult != null && testResult.isContinue()) {
-          
+          buffer.append(nextChar);
+        } else if (!token.isPopulated() && buffer.length() > 0) {
+          if (!testResult.isMatchContinue()) {
+            Object value = testResult.getToken();
+            token.populateField(value);
+            buffer = new StringBuilder(buffer.substring(testResult.getTokenLength()));
+          } 
         }
-      } while(buffer.size() > 0);
+
+        // tracing back
+        while (token.isPopulated()) {
+          PartialToken<C, ?> parent = (PartialToken<C, ?>) trace.removeFirst();
+          if (isConcrete(parent.getTokenType())) {
+            // token evaluation happens here
+            field = token.getCurrentField();
+            Object result = token.finalize(context);
+
+            token = trace.peekFirst();
+            if (token == null) {
+              return (X) result;
+            }
+            field = token.getCurrentField();
+
+            if (token.getTokenType().isArray()) {
+              token.add(result);
+              if (field != null) {
+                CaptureLimit limit = field.getAnnotation(CaptureLimit.class);
+                if (limit != null && limit.max() == token.getCollectionSize()) {
+                  token.setPopulated();
+                }
+              }
+            } else {
+              token.populateField(result);
+            }
+          }
+        }
+      } while(buffer.length() > 0);
+
+      throw new SyntaxError("Unexpected end of input");
     } catch (SyntaxError se) {
       throw se;
     } catch (Exception e) {

@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.reflections.Reflections;
 import org.reflections.scanners.SubTypesScanner;
@@ -39,7 +40,7 @@ public final class PartialToken<C, X> {
   protected PartialToken(Class<X> tokenType) {
     this.tokenType = tokenType;
     if (!TokenGrammar.isConcrete(tokenType)) {
-      variants = reflections.getSubtypesOf(type).stream()
+      variants = reflections.getSubtypesOf(tokenType).stream()
         .filter(TokenGrammar::isConcrete)
         .collect(Collectors.toList());
     } else if (Rule.class.isAssignableFrom(tokenType)) {
@@ -53,13 +54,13 @@ public final class PartialToken<C, X> {
 
   public X finalize(C context) {
     if (token != null) {
-      throw new InvalidStateException("Already finalized");
+      throw new IllegalStateException("Already finalized");
     }
 
     try {
-      if (Rule.class.isAssignableFrom(rokenType)) {
+      if (Rule.class.isAssignableFrom(tokenType)) {
         token = tokenType.newInstance();
-        for (int i = 0; i < fields.length(); i++) {
+        for (int i = 0; i < fields.length; i++) {
           Field field = fields[i];
           try {
             if (!Modifier.isFinal(field.getModifiers())) {
