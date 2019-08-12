@@ -60,13 +60,13 @@ public class PatternMatcherTest {
     StringBuilder buffer = new StringBuilder("s");
 
     TokenTestResult result = subject.apply(buffer);
-    Assert.assertTrue(result.isContinue());
+    Assert.assertTrue(result.isMatchContinue());
     Assert.assertEquals(1, result.getTokenLength());
     Assert.assertEquals("s", result.getToken());
 
     buffer.append("ome text unti");
     result = subject.apply(buffer);
-    Assert.assertTrue(result.isContinue());
+    Assert.assertTrue(result.isMatchContinue());
     Assert.assertEquals(buffer.length(), result.getTokenLength());
     Assert.assertEquals("some text unti", result.getToken());
 

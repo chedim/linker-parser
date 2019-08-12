@@ -29,7 +29,12 @@ public class TokenGrammarTest {
     private static final String marker = "/*";
     @CapturePattern(until="\\*/")
     private String comment;
+    private static final String tail = "*/";
+  }
 
+  public static class StatementSeparator implements Junction {
+    @CapturePattern(pattern = "[\\s;]+")
+    private String value;
   }
 
   public static class ArrayToken implements Rule<Object> {

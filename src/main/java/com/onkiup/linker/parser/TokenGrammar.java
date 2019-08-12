@@ -64,103 +64,116 @@ public class TokenGrammar<C, X extends Rule<C>> {
         PartialToken<C, ?> token = trace.peekFirst();
         Class type = token.getTokenType();
         Field field = token.getCurrentField();
+        TokenMatcher matcher = token.getMatcher();
 
         if (buffer.length() > 0) {
-          if (Rule.class.isAssignableFrom(type)) {
-            PartialToken child = new PartialToken(field.getType());
-            trace.addFirst(child);
-            continue;
-          } else if (Number.class.isAssignableFrom(type)){
-            TokenMatcher matcher = token.getMatcher();
-            if (matcher == null) {
-              matcher = new NumberMatcher((Class<? extends Number>) type);
-              token.setMatcher(matcher);
-            }
-            testResult = matcher.apply(buffer);
-          } else if (String.class.isAssignableFrom(type)) {
-            TokenMatcher matcher = token.getMatcher();
-            if (matcher == null) {
-              if (field == null) {
-                throw new RuntimeException("Unable to read directly to String");
-              }
-              if (Modifier.isStatic(field.getModifiers())) {
-                Object pattern = field.get(null);
-                if (pattern != null) {
-                  matcher = new TerminalMatcher(pattern.toString());
+          if (matcher == null) {
+            if (type.isArray()) {
+              trace.addFirst(new PartialToken(type.getComponentType()));
+              continue;
+            } if (!isConcrete(type)) {
+              Class variant = token.getCurrentAlternative();
+              trace.addFirst(new PartialToken(variant));
+              continue;
+            } else if (Rule.class.isAssignableFrom(type)) {
+              Class fieldType = field.getType() ;
+              PartialToken child;
+              if (fieldType.isArray()) {
+                child = new PartialToken(fieldType);
+              } else {
+                child = new PartialToken(field.getType());
+                if (String.class.isAssignableFrom(fieldType)) {
+                  if (Modifier.isStatic(field.getModifiers())) {
+                    field.setAccessible(true);
+                    String pattern = (String) field.get(null);
+                    child.setMatcher(new TerminalMatcher(pattern));
+                  } else if (field.isAnnotationPresent(CapturePattern.class)) {
+                    CapturePattern pattern = field.getAnnotation(CapturePattern.class);
+                    child.setMatcher(new PatternMatcher(pattern));
+                  }
+                } else if (Number.class.isAssignableFrom(fieldType)) {
+                   child.setMatcher(new NumberMatcher(fieldType));
+                } else {
+                  throw new RuntimeException("Unsupported token type: '"+ fieldType +"'");
                 }
-              } else if (field.isAnnotationPresent(CapturePattern.class)) {
-                CapturePattern pattern = field.getAnnotation(CapturePattern.class);
-                matcher = new PatternMatcher(pattern);
               }
-              token.setMatcher(matcher);
+              trace.addFirst(child);
+              continue;
+            } else {
+              throw new RuntimeException(type + " should implement com.onkiup.linker.parser.Rule interface; ");
             }
-            testResult = matcher.apply(buffer);
-          } else if (!isConcrete(type)) {
-            Class variant = token.getCurrentAlternative();
-            trace.addFirst(new PartialToken(variant));
-            continue;
-          } else if (type.isArray()) {
-            Class elementType = type.getComponentType();
-            trace.addFirst(new PartialToken(elementType));
-            continue;
           } else {
-            throw new RuntimeException("Unsupported token type: " + type);
-          }
+            testResult = matcher.apply(buffer);
+            if (testResult.isMatch()) {
+              Object value = testResult.getToken();
+              token.finalize(value.toString());
+              buffer = new StringBuilder(buffer.substring(testResult.getTokenLength()));
+            } else if (testResult.isFailed()){
+              trace.removeFirst();
 
-          if (testResult.isMatch()) {
-            Object value = testResult.getToken();
-            token.populateField(value);
-            buffer = new StringBuilder(buffer.substring(testResult.getTokenLength()));
-          } else if (testResult.isFailed()){
-            trace.removeFirst();
-            PartialToken parent = trace.peekFirst();
-            parent.advanceAlternative();
-            if (!parent.hasAlternativesLeft()) {
+              PartialToken parent;
+              boolean pickedAlternative = false;
+              while (null != (parent = trace.pollFirst())) {
+                if (parent.hasAlternativesLeft()) {
+                   parent.advanceAlternative(buffer.toString());
+                   trace.addFirst(parent);
+                   pickedAlternative = true;
+                   break;
+                }
+              }
+
+              if (pickedAlternative) {
+                continue;
+              }
+
               throw new SyntaxError("Expected " +
-                  ((field == null) ? type : field) +
+                  parent +
                 " but got <[" + buffer + "]>"
               );
             }
           }
         } 
-          
+
         nextChar = source.read();
         if (nextChar > 0) {
-          buffer.append(nextChar);
+          buffer.append((char)nextChar);
         } else if (!token.isPopulated() && buffer.length() > 0) {
-          if (!testResult.isMatchContinue()) {
+          if (testResult != null && testResult.isMatchContinue()) {
             Object value = testResult.getToken();
-            token.populateField(value);
+            token.finalize((String)value);
             buffer = new StringBuilder(buffer.substring(testResult.getTokenLength()));
           } 
         }
 
         // tracing back
         while (token.isPopulated()) {
-          PartialToken<C, ?> parent = (PartialToken<C, ?>) trace.removeFirst();
-          if (isConcrete(parent.getTokenType())) {
-            // token evaluation happens here
-            field = token.getCurrentField();
-            Object result = token.finalize(context);
-
-            token = trace.peekFirst();
-            if (token == null) {
-              return (X) result;
+          trace.removeFirst();
+          if (Rule.class.isAssignableFrom(type)) {
+            if (isConcrete(type)) {
+              token.finalize(context);
             }
-            field = token.getCurrentField();
+          } 
+          Object value = token.getToken();
 
-            if (token.getTokenType().isArray()) {
-              token.add(result);
-              if (field != null) {
-                CaptureLimit limit = field.getAnnotation(CaptureLimit.class);
-                if (limit != null && limit.max() == token.getCollectionSize()) {
-                  token.setPopulated();
-                }
-              }
+          if (trace.isEmpty()) {
+            // SUCESS? 
+            return (X) value;
+          }
+ 
+          PartialToken<C, ?> parent = (PartialToken<C, ?>) trace.peekFirst();
+          Class parentType = parent.getTokenType();
+          if (parentType.isArray()) {
+            parent.add(value);
+          } else if (Rule.class.isAssignableFrom(parentType)) {
+            if (isConcrete(parentType)) {
+              parent.populateField(value); 
             } else {
-              token.populateField(result);
+              parent.resolve(value);
             }
           }
+
+         token = parent;
+         type = token.getTokenType();
         }
       } while(buffer.length() > 0);
 

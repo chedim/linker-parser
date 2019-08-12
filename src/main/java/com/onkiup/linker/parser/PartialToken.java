@@ -32,24 +32,48 @@ public final class PartialToken<C, X> {
   private Object[] values;
   private int populatedFields = 0;
   private int currentAlternative = 0;
-  private Collection<Class<? extends X>> variants;
+  private List<Class<? extends X>> variants;
+  private List<String> variantFails;
   private LinkedList<Object> collection = new LinkedList<>();
   private boolean populated = false;
   private TokenMatcher matcher;
 
-  protected PartialToken(Class<X> tokenType) {
-    this.tokenType = tokenType;
+  protected PartialToken(Class<X> tokenType) { this.tokenType = tokenType;
     if (!TokenGrammar.isConcrete(tokenType)) {
-      variants = reflections.getSubtypesOf(tokenType).stream()
+      variants = reflections.getSubTypesOf(tokenType).stream()
         .filter(TokenGrammar::isConcrete)
         .collect(Collectors.toList());
+      variantFails = new LinkedList<>();
     } else if (Rule.class.isAssignableFrom(tokenType)) {
       this.fields = tokenType.getDeclaredFields();
       this.values = new Object[this.fields.length];
-    } else {
-      this.fields = new Field[1];
-      this.values = new Object[1];
     }
+  }
+
+  public void finalize(String value) {
+    if (token != null) {
+      throw new IllegalStateException("Already finalized");
+    }
+
+    if (fields != null) {
+      throw new IllegalStateException("Cannot finalize compound token with terminal value");
+    }
+
+    this.token = convert(tokenType, value);
+    populated = true;
+  }
+
+  public void resolve(Object value) {
+    if (token != null) {
+      throw new IllegalStateException("Already finalized");
+    }
+
+    if (variants == null || variants.size() == 0) {
+      throw new RuntimeException("Unable to finalize concrete token as junction");
+    }
+
+    token = (X) value;
+    populated = true;
   }
 
   public X finalize(C context) {
@@ -57,30 +81,29 @@ public final class PartialToken<C, X> {
       throw new IllegalStateException("Already finalized");
     }
 
+    if (fields == null) { 
+      throw new IllegalStateException("Cannot finalize terminal token with compound values");
+    }
+
     try {
-      if (Rule.class.isAssignableFrom(tokenType)) {
-        token = tokenType.newInstance();
-        for (int i = 0; i < fields.length; i++) {
-          Field field = fields[i];
-          try {
-            if (!Modifier.isFinal(field.getModifiers())) {
-              Object value = values[i];
-              value = (value == null) ? null : convert(field.getType(), value.toString());
-              boolean oldAccessible = field.isAccessible();
-              field.setAccessible(true);
-              field.set(token, value);
-              field.setAccessible(oldAccessible);
-            }
-            populatedFields.add(field);
-          } catch (Exception e) {
-            throw new RuntimeException("Failed to populate token field '" + field + "' with value '" + value + "'", e);
+      token = tokenType.newInstance();
+      for (int i = 0; i < fields.length; i++) {
+        Field field = fields[i];
+        Object value = values[i];
+        try {
+          if (!Modifier.isFinal(field.getModifiers())) {
+            value = (value == null) ? null : convert(field.getType(), value);
+            boolean oldAccessible = field.isAccessible();
+            field.setAccessible(true);
+            field.set(token, value);
+            field.setAccessible(oldAccessible);
           }
+        } catch (Exception e) {
+          throw new RuntimeException("Failed to populate token field '" + field + "' with value '" + value + "'", e);
         }
-      } else {
-        token = convert(tokenType, values[0]);
       }
 
-      if (context != null && token instanceof Rule) {
+      if (context != null) {
         ((Rule<C>) token).accept(context);
       }
       return token;
@@ -101,12 +124,15 @@ public final class PartialToken<C, X> {
   }
 
   public Field getCurrentField() {
+    if (fields == null) {
+      return null;
+    }
     return fields[populatedFields];
   }
 
   public void populateField(Object value) {
     values[populatedFields++] = value;
-    populated = fields.length >= populatedFields;
+    populated = fields.length <= populatedFields;
   }
 
   public int getPopulatedFieldCount() {
@@ -126,24 +152,29 @@ public final class PartialToken<C, X> {
   }
 
   public boolean hasAlternativesLeft() {
-    return currentAlternative < alternatives.size() - 1;
+    return variants != null && currentAlternative < variants.size() - 1;
   }
 
   public Class<? extends X> getCurrentAlternative() {
-    return alternatives.get(currentAlternative);
+    return variants.get(currentAlternative);
   }
 
-  public Class<? extends X> advanceAlternative() {
+  public Class<? extends X> advanceAlternative(String where) {
+    variantFails.add(where);
     currentAlternative++;
-    return alternatives.get(currentAlternative); 
+    return variants.get(currentAlternative); 
   }
 
   // since: 0.1.1
-  protected <T> T convert(Class<T> into, String what) {
+  protected <T> T convert(Class<T> into, Object what) { 
+    if (what == null || into.isAssignableFrom(what.getClass())) {
+      return (T) what;
+    }
+
     try {
       Constructor<T> constructor = into.getConstructor(String.class);
       constructor.setAccessible(true);
-      return constructor.newInstance(what);
+      return constructor.newInstance(what.toString());
     } catch (Exception e) {
       // nothiing to do
     }
@@ -151,7 +182,7 @@ public final class PartialToken<C, X> {
     try {
       Method converter = into.getMethod("fromString", String.class);
       converter.setAccessible(true);
-      return (T) converter.invoke(null, what);
+      return (T) converter.invoke(null, what.toString());
     } catch (Exception e) {
       // nothiing to do
     }
@@ -159,9 +190,9 @@ public final class PartialToken<C, X> {
     try {
       Method converter = into.getMethod("valueOf", String.class);
       converter.setAccessible(true);
-      return (T) converter.invoke(null, what);
+      return (T) converter.invoke(null, what.toString());
     } catch (Exception e) {
-      throw new RuntimeException("Unable to convert '" + what + "' into " + into);
+      throw new RuntimeException("Unable to convert '" + what + "' into " + into, e);
     }
   }
 
