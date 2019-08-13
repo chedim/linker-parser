@@ -31,9 +31,9 @@ Invoking `TokenGrammar::parse(Reader source)` will read and parse the text from 
 ## Transpiling/Compiling
 Linker-parser provides support for transpiling into other languages via Rule::transpile hook. Currently this feature is limited to one target language.
 
-## Current limitations
-* Token repetitions are not yet supported.
-
 ## Version History
+* 0.3 
+- major refactoring from recursive to stack-based algorithm
+- Support for token repetitions
 * 0.2.2 - first publicly available version
 * -100 - my first parser, used at Politico to parse and normalize HTML for articles migrated from capitalnewyork.com to politico.com (no source code of that parser was used here, only experience) :)
