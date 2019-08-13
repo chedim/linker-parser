@@ -1,5 +1,6 @@
 package com.onkiup.linker.parser;
 
+import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -15,6 +16,7 @@ import org.reflections.Reflections;
 import org.reflections.scanners.SubTypesScanner;
 import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
+
 
 // in 0.2.2:
 // - bound X to Rule
@@ -37,8 +39,11 @@ public final class PartialToken<C, X> {
   private LinkedList<Object> collection = new LinkedList<>();
   private boolean populated = false;
   private TokenMatcher matcher;
+  private ParserLocation location;
 
-  protected PartialToken(Class<X> tokenType) { this.tokenType = tokenType;
+  protected PartialToken(Class<X> tokenType, ParserLocation location) { 
+    this.tokenType = tokenType;
+    this.location = location;
     if (!TokenGrammar.isConcrete(tokenType)) {
       variants = reflections.getSubTypesOf(tokenType).stream()
         .filter(TokenGrammar::isConcrete)
@@ -81,25 +86,31 @@ public final class PartialToken<C, X> {
       throw new IllegalStateException("Already finalized");
     }
 
-    if (fields == null) { 
+    if (fields == null && !tokenType.isArray()) { 
       throw new IllegalStateException("Cannot finalize terminal token with compound values");
     }
 
     try {
-      token = tokenType.newInstance();
-      for (int i = 0; i < fields.length; i++) {
-        Field field = fields[i];
-        Object value = values[i];
-        try {
-          if (!Modifier.isFinal(field.getModifiers())) {
-            value = (value == null) ? null : convert(field.getType(), value);
-            boolean oldAccessible = field.isAccessible();
-            field.setAccessible(true);
-            field.set(token, value);
-            field.setAccessible(oldAccessible);
+      if (tokenType.isArray()) {
+        token = (X) collection.toArray();
+        return token;
+      } else {
+        token = tokenType.newInstance();
+        for (int i = 0; i < fields.length; i++) {
+          Field field = fields[i];
+          Object value = values[i];
+          try {
+            if (!Modifier.isFinal(field.getModifiers())) {
+              Class fieldType = field.getType();
+              value = (value == null) ? null : convert(fieldType, value);
+              boolean oldAccessible = field.isAccessible();
+              field.setAccessible(true);
+              field.set(token, value);
+              field.setAccessible(oldAccessible);
+            }
+          } catch (Exception e) {
+            throw new RuntimeException("Failed to populate token field '" + field + "' with value '" + value + "'", e);
           }
-        } catch (Exception e) {
-          throw new RuntimeException("Failed to populate token field '" + field + "' with value '" + value + "'", e);
         }
       }
 
@@ -147,6 +158,24 @@ public final class PartialToken<C, X> {
     return populated;
   }
 
+  public boolean isFieldOptional() {
+    Field field = getCurrentField();
+    return field != null && field.isAnnotationPresent(Optional.class);
+  }
+
+  public boolean hasRequiredFields() {
+    if (fields != null) {
+      for(int i = populatedFields; i < fields.length; i++) {
+        Field field = fields[i];
+        if (!field.isAnnotationPresent(Optional.class)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
   public void setPopulated() {
     this.populated = true;
   }
@@ -167,6 +196,18 @@ public final class PartialToken<C, X> {
 
   // since: 0.1.1
   protected <T> T convert(Class<T> into, Object what) { 
+
+    if (into.isArray()) {
+      Object[] collection = (Object[]) what;
+      T[] result = (T[]) Array.newInstance(into.getComponentType(), collection.length);
+      int i = 0;
+      for (Object item : collection) {
+        result[i++] = (T)item;
+      }
+      return (T) result;
+    }
+
+
     if (what == null || into.isAssignableFrom(what.getClass())) {
       return (T) what;
     }
@@ -214,6 +255,19 @@ public final class PartialToken<C, X> {
 
   public TokenMatcher getMatcher() {
     return this.matcher;
+  }
+
+  @Override
+  public String toString() {
+    String memberId = collection.size() > 0 ? "#" + collection.size() : 
+        variants != null && variants.size() > 0 ? "?" + currentAlternative : "";
+    String members = collection.size() > 0 ? '\n' + collection.stream().map(Object::toString).collect(Collectors.joining(", ")) : "";
+    return new StringBuilder()
+      .append(String.format("%-32s", tokenType.getSimpleName() + memberId))
+      .append(" @ ")
+      .append(location.toString())
+      .append(members)
+      .toString();
   }
 }
 

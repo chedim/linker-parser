@@ -23,6 +23,8 @@ public class TokenGrammarTest {
     private static final String marker = "//";
     @CapturePattern(pattern = "[^\\n]*")
     private String comment;
+    @Optional
+    private static final String tail = "\n";
   }
 
   public static class MultilineCommentGrammarDefinition implements Junction {
@@ -33,7 +35,7 @@ public class TokenGrammarTest {
   }
 
   public static class StatementSeparator implements Junction {
-    @CapturePattern(pattern = "[\\s;]+")
+    @CapturePattern(pattern = "[\\s\\n]*;[\\s\\n]*")
     private String value;
   }
 
@@ -113,12 +115,21 @@ public class TokenGrammarTest {
     Assert.assertNotNull(result.tokens);
 
     Junction[] tokens = result.tokens;
-    Assert.assertEquals(3, tokens.length);
+    Assert.assertEquals(4, tokens.length);
     
     Junction token = tokens[0];
-    Assert.assertTrue(token instanceof TestGrammarDefinition);
+    Assert.assertEquals(TestGrammarDefinition.class, token.getClass());
     Assert.assertEquals("hello", ((TestGrammarDefinition) token).command);
 
-    Assert.assertTrue(false);
+    token = tokens[1];
+    Assert.assertEquals(StatementSeparator.class, token.getClass());
+
+    token = tokens[2];
+    Assert.assertEquals(CommentGrammarDefinition.class, token.getClass());
+    Assert.assertEquals(" comment", ((CommentGrammarDefinition)token).comment);
+
+    token = tokens[3];
+    Assert.assertEquals(MultilineCommentGrammarDefinition.class, token.getClass());
+    Assert.assertEquals(" multiline\ncomment ", ((MultilineCommentGrammarDefinition)token).comment);
   }
 }

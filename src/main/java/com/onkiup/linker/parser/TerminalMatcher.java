@@ -12,13 +12,22 @@ public class TerminalMatcher implements TokenMatcher {
   @Override
   public TokenTestResult apply(StringBuilder buffer) {
     int bufferLen = buffer.length();
-    if (pattern.startsWith(buffer.toString())) {
-      if (patternLen == bufferLen) {
-        return TestResult.MATCH.token(patternLen, pattern);
+    int charsToCompare = Math.min(patternLen, bufferLen);
+    for (int i = 0; i < charsToCompare; i++) {
+      if (pattern.charAt(i) != buffer.charAt(i)) {
+        return TestResult.fail();
       }
-      return TestResult.matchContinue(bufferLen, buffer.toString());
     }
-    return TestResult.fail();
+
+    if (patternLen <= bufferLen) {
+      return TestResult.MATCH.token(patternLen, pattern);
+    }
+    return TestResult.matchContinue(bufferLen, buffer.toString());
+  }
+
+  @Override
+  public String toString() {
+    return "TerminalMatcher["+pattern+"]";
   }
 }
 

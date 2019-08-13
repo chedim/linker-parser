@@ -54,34 +54,33 @@ public class TokenGrammar<C, X extends Rule<C>> {
 
   public X tokenize(Reader source, C context) throws SyntaxError {
     try {
-      ConcurrentLinkedDeque<PartialToken<C, ?>> trace = new ConcurrentLinkedDeque<>();
-      trace.push(new PartialToken<C, X>(type));
-      int nextChar;
-      StringBuilder buffer = new StringBuilder();
+      ParserState state = new ParserState(source, "");
+      state.push(new PartialToken<C, X>(type, state.location()));
       TokenTestResult testResult = null;
+      boolean hitEnd = false;
 
       do {
-        PartialToken<C, ?> token = trace.peekFirst();
+        PartialToken<C, ?> token = state.token();
         Class type = token.getTokenType();
         Field field = token.getCurrentField();
         TokenMatcher matcher = token.getMatcher();
 
-        if (buffer.length() > 0) {
+        if (!state.empty()) {
           if (matcher == null) {
             if (type.isArray()) {
-              trace.addFirst(new PartialToken(type.getComponentType()));
+              state.push(new PartialToken(type.getComponentType(), state.location()));
               continue;
             } if (!isConcrete(type)) {
               Class variant = token.getCurrentAlternative();
-              trace.addFirst(new PartialToken(variant));
+              state.push(new PartialToken(variant, state.location()));
               continue;
             } else if (Rule.class.isAssignableFrom(type)) {
               Class fieldType = field.getType() ;
               PartialToken child;
               if (fieldType.isArray()) {
-                child = new PartialToken(fieldType);
+                child = new PartialToken(fieldType, state.location());
               } else {
-                child = new PartialToken(field.getType());
+                child = new PartialToken(field.getType(), state.location());
                 if (String.class.isAssignableFrom(fieldType)) {
                   if (Modifier.isStatic(field.getModifiers())) {
                     field.setAccessible(true);
@@ -97,70 +96,72 @@ public class TokenGrammar<C, X extends Rule<C>> {
                   throw new RuntimeException("Unsupported token type: '"+ fieldType +"'");
                 }
               }
-              trace.addFirst(child);
+              state.push(child);
               continue;
             } else {
               throw new RuntimeException(type + " should implement com.onkiup.linker.parser.Rule interface; ");
             }
           } else {
-            testResult = matcher.apply(buffer);
+            testResult = matcher.apply(state.buffer());
             if (testResult.isMatch()) {
               Object value = testResult.getToken();
               token.finalize(value.toString());
-              buffer = new StringBuilder(buffer.substring(testResult.getTokenLength()));
+              state.drop(testResult.getTokenLength());
             } else if (testResult.isFailed()){
-              trace.removeFirst();
+              state.pop();
 
               PartialToken parent;
               boolean pickedAlternative = false;
-              while (null != (parent = trace.pollFirst())) {
+              while (null != (parent = state.pop())) {
                 if (parent.hasAlternativesLeft()) {
-                   parent.advanceAlternative(buffer.toString());
-                   trace.addFirst(parent);
+                   parent.advanceAlternative(state.lineSource());
+                   state.push(parent);
                    pickedAlternative = true;
                    break;
+                 } else if (parent.isFieldOptional()) {
+                   parent.populateField(null);
+                   state.push(parent);
+                   pickedAlternative = true;
+                   break;
+                 }
+              }
+
+              if (!pickedAlternative) {
+                if (parent == null) {
+                  throw new SyntaxError("Expected " + type + " with matcher " + matcher, state);
+                } else {
+                  throw new SyntaxError("Expected " + parent, state);
                 }
               }
-
-              if (pickedAlternative) {
-                continue;
-              }
-
-              throw new SyntaxError("Expected " +
-                  parent +
-                " but got <[" + buffer + "]>"
-              );
             }
           }
         } 
 
-        nextChar = source.read();
-        if (nextChar > 0) {
-          buffer.append((char)nextChar);
-        } else if (!token.isPopulated() && buffer.length() > 0) {
-          if (testResult != null && testResult.isMatchContinue()) {
+        if (!state.advance()) {
+          hitEnd = true; 
+          if (!token.isPopulated() && !state.empty() && testResult != null && testResult.isMatchContinue()) {
             Object value = testResult.getToken();
             token.finalize((String)value);
-            buffer = new StringBuilder(buffer.substring(testResult.getTokenLength()));
+            state.drop(testResult.getTokenLength());
           } 
         }
 
         // tracing back
-        while (token.isPopulated()) {
-          trace.removeFirst();
-          if (Rule.class.isAssignableFrom(type)) {
-            if (isConcrete(type)) {
+        while (token.isPopulated() || (hitEnd && !token.hasRequiredFields())) {
+          state.pop();
+          if (Rule.class.isAssignableFrom(type) || type.isArray()) {
+            if (isConcrete(type) || type.isArray()) {
               token.finalize(context);
             }
           } 
-          Object value = token.getToken();
 
-          if (trace.isEmpty()) {
+          if (state.depth() == 0) {
             // SUCESS? 
-            return (X) value;
+            return (X) token.getToken();
           }
  
-          PartialToken<C, ?> parent = (PartialToken<C, ?>) trace.peekFirst();
+          Object value = token.getToken();
+          PartialToken<C, ?> parent = (PartialToken<C, ?>) state.token();
           Class parentType = parent.getTokenType();
           if (parentType.isArray()) {
             parent.add(value);
@@ -175,9 +176,9 @@ public class TokenGrammar<C, X extends Rule<C>> {
          token = parent;
          type = token.getTokenType();
         }
-      } while(buffer.length() > 0);
+      } while(!state.empty());
 
-      throw new SyntaxError("Unexpected end of input");
+      throw new SyntaxError("Unexpected end of input", state);
     } catch (SyntaxError se) {
       throw se;
     } catch (Exception e) {

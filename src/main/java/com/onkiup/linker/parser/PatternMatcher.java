@@ -55,5 +55,10 @@ public class PatternMatcher implements TokenMatcher {
       }
     }
   }
+
+  @Override
+  public String toString() {
+    return "PatternMatcher["+pattern+"]";
+  }
 }
 
