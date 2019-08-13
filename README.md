@@ -31,6 +31,9 @@ Invoking `TokenGrammar::parse(Reader source)` will read and parse the text from 
 ## Transpiling/Compiling
 Linker-parser provides support for transpiling into other languages via Rule::transpile hook. Currently this feature is limited to one target language.
 
+## Evaluating
+Passing a context object as second argument to `TokenGrammar::parse` will cause parser to pass this parameter to `Rule::apply` evaluation callback on each Rule as soon as the rule object is populated.
+
 ## Version History
 * 0.3 
 - major refactoring from recursive to stack-based algorithm
