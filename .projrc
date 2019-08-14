@@ -1,0 +1,7 @@
+tmux killp -t {right-of}
+tmux split-window -c "#{pane_current_path}" -l 50 -dhb "testwatch"
+tmux split-window -c "#{pane_current_path}" -p 30 -h "nvim .jdbrc"
+tmux split-window -c "#{pane_current_path}" -p 50 -dv "testloop"
+tmux split-window -c "#{pane_current_path}" -p 70 -dv "jdbloop"
+tmux select-pane -t {left-of}
+tmux split-window -c "#{pane_current_path}" -p 10 -dv

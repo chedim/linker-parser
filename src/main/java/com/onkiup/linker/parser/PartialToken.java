@@ -142,6 +142,18 @@ public final class PartialToken<C, X> {
   }
 
   public void populateField(Object value) {
+    Field field = fields[populatedFields];
+    if (field.getType().isArray() && field.isAnnotationPresent(CaptureLimit.class)) {
+      CaptureLimit limit = field.getAnnotation(CaptureLimit.class);
+      Object[] values = (Object[]) value;
+      if (values.length < limit.min()) {
+        throw new IllegalStateException("Expected at least " + limit.min() + " entries of '" + field.getType().getComponentType() + "' but got " + values.length);
+      }
+      if (values.length > limit.max()) {
+        throw new IllegalStateException("Expected at most " + limit.max() + " entries of '" + field.getType().getComponentType() + "' but got " + values.length);
+      }
+    }
+
     values[populatedFields++] = value;
     populated = fields.length <= populatedFields;
   }

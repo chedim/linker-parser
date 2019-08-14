@@ -40,6 +40,7 @@ public class TokenGrammarTest {
   }
 
   public static class ArrayToken implements Rule<Object> {
+    @CaptureLimit(min=2, max=4)
     private Junction[] tokens = new Junction[3];
   }
 
@@ -131,5 +132,23 @@ public class TokenGrammarTest {
     token = tokens[3];
     Assert.assertEquals(MultilineCommentGrammarDefinition.class, token.getClass());
     Assert.assertEquals(" multiline\ncomment ", ((MultilineCommentGrammarDefinition)token).comment);
+  }
+
+  @Test
+  public void testArrayCaptureLimit() throws Exception {
+    TokenGrammar<Object, ArrayToken> grammar = TokenGrammar.forClass(ArrayToken.class);
+    try {
+      ArrayToken result = grammar.parse(new StringReader(":test"));
+      Assert.fail("CaptureLimit min is ignored");
+    } catch (Exception e) {
+      // this is expected
+    }
+    
+    try {
+      grammar.parse(new StringReader(":a;:b;:c;:d;:e;:f;:g"));
+      Assert.fail("CaptureLimit max is ignored");
+    } catch (Exception e) {
+      // this is expected
+    }
   }
 }
