@@ -55,6 +55,49 @@ public class TokenGrammarTest {
     }
   }
 
+  // bug in < 0.3.3
+  public static class SubRuleGrammar implements Rule<Object> {
+    private static String MARKER = "!";
+    private TestGrammarDefinition command;
+  }
+
+  // bug in < 0.3.4
+  public static class TestGrammarWithOptionalLastField implements Rule<Object> {
+    private static final String marker = ":";
+    @Optional
+    @CapturePattern(pattern="[^\\s\\n]+")
+    private String command;
+  }
+
+  // bug in < 0.3.4
+  public static class OptionalGrammarWrapper implements Rule<Object> {
+    private TestGrammarWithOptionalLastField test;
+    private static final String space = " "; 
+  }
+
+  // bug in < 0.3.4
+  @Test
+  public void testOptionalEnding() throws Exception {
+    TokenGrammar<?, OptionalGrammarWrapper> grammar = TokenGrammar.forClass(OptionalGrammarWrapper.class);
+
+    OptionalGrammarWrapper result = grammar.parse(new StringReader(": "));
+    Assert.assertNotNull(result);
+    Assert.assertNotNull(result.test);
+    Assert.assertEquals("", result.test.command);
+  }
+
+  // bug in < 0.3.3 
+  @Test
+  public void testSubRule() throws Exception {
+    TokenGrammar<?, SubRuleGrammar> grammar = TokenGrammar.forClass(SubRuleGrammar.class);
+    Assert.assertNotNull(grammar);
+
+    SubRuleGrammar result = grammar.parse(new StringReader("!:test"));
+    Assert.assertNotNull(result);
+    Assert.assertNotNull(result.command);
+    Assert.assertEquals("test", result.command.command);
+  }
+
   @Test
   public void testGrammar() throws Exception {
     TokenGrammar<?, TestGrammarDefinition> grammar = TokenGrammar.forClass(TestGrammarDefinition.class);

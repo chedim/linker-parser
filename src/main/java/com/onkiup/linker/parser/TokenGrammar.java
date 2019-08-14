@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 public class TokenGrammar<C, X extends Rule<C>> {
   private Class<X> type;
 
-  public static <C, X extends Rule<C>> TokenGrammar<C, X> forClass(Class<X> type) {
+  public static <CC, XX extends Rule<CC>> TokenGrammar<CC, XX> forClass(Class<XX> type) {
     return new TokenGrammar<>(type);
   }
 
@@ -75,7 +75,10 @@ public class TokenGrammar<C, X extends Rule<C>> {
               state.push(new PartialToken(variant, state.location()));
               continue;
             } else if (Rule.class.isAssignableFrom(type)) {
-              Class fieldType = field.getType() ;
+              if (field == null) {
+                throw new RuntimeException(type + " field is null \n" + state);
+              }
+              Class fieldType = field.getType();
               PartialToken child;
               if (fieldType.isArray()) {
                 child = new PartialToken(fieldType, state.location());
@@ -92,7 +95,7 @@ public class TokenGrammar<C, X extends Rule<C>> {
                   }
                 } else if (Number.class.isAssignableFrom(fieldType)) {
                    child.setMatcher(new NumberMatcher(fieldType));
-                } else {
+                } else if (!Rule.class.isAssignableFrom(fieldType)) {
                   throw new RuntimeException("Unsupported token type: '"+ fieldType +"'");
                 }
               }

@@ -134,14 +134,18 @@ public final class PartialToken<C, X> {
     return fields;
   }
 
+
   public Field getCurrentField() {
-    if (fields == null) {
+    int populatedFields = getPopulatedFieldCount();
+    if (fields == null || populated) {
       return null;
     }
+
     return fields[populatedFields];
   }
 
   public void populateField(Object value) {
+    int populatedFields = getPopulatedFieldCount();
     Field field = fields[populatedFields];
     if (field.getType().isArray() && field.isAnnotationPresent(CaptureLimit.class)) {
       CaptureLimit limit = field.getAnnotation(CaptureLimit.class);
@@ -154,11 +158,17 @@ public final class PartialToken<C, X> {
       }
     }
 
-    values[populatedFields++] = value;
-    populated = fields.length <= populatedFields;
+    values[populatedFields] = value;
+    this.populatedFields = populatedFields + 1;
   }
 
   public int getPopulatedFieldCount() {
+    if (fields != null && !populated) {
+      while (fields != null && populatedFields < fields.length && isTransient(fields[populatedFields])) {
+        populatedFields++;
+      }
+      populated = populatedFields >= fields.length;
+    }
     return populatedFields;
   }
 
@@ -167,7 +177,7 @@ public final class PartialToken<C, X> {
   }
 
   public boolean isPopulated() {
-    return populated;
+    return populated || (fields != null && fields.length <= getPopulatedFieldCount());
   }
 
   public boolean isFieldOptional() {
@@ -280,6 +290,10 @@ public final class PartialToken<C, X> {
       .append(location.toString())
       .append(members)
       .toString();
+  }
+
+  protected boolean isTransient(Field field) {
+    return field != null && Modifier.isTransient(field.getModifiers());
   }
 }
 

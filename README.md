@@ -35,8 +35,9 @@ Linker-parser provides support for transpiling into other languages via Rule::tr
 Passing a context object as second argument to `TokenGrammar::parse` will cause parser to pass this parameter to `Rule::apply` evaluation callback on each Rule as soon as the rule object is populated.
 
 ## Version History
+* 0.3.1 - transient fields now will be ignored
 * 0.3 
-- major refactoring from recursive to stack-based algorithm
-- Support for token repetitions
+  major refactoring from recursive to stack-based algorithm
+  Support for token repetitions
 * 0.2.2 - first publicly available version
 * -100 - my first parser, used at Politico to parse and normalize HTML for articles migrated from capitalnewyork.com to politico.com (no source code of that parser was used here, only experience) :)

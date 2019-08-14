@@ -14,7 +14,7 @@ plugins {
 }
 
 project.group = 'com.onkiup'
-project.version = '0.3'
+project.version = '0.3.3'
 
 compileJava   {
   sourceCompatibility = '1.8'
