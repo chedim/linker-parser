@@ -116,6 +116,7 @@ public class TokenGrammar<C, X extends Rule<C>> {
               PartialToken parent;
               boolean pickedAlternative = false;
               while (null != (parent = state.pop())) {
+                state.returnToBuffer(token.getTaken());
                 if (parent.hasAlternativesLeft()) {
                    parent.advanceAlternative(state.lineSource());
                    state.push(parent);
@@ -124,6 +125,8 @@ public class TokenGrammar<C, X extends Rule<C>> {
                  } else if (parent.isFieldOptional()) {
                    parent.populateField(null);
                    state.push(parent);
+                   token = parent;
+                   type = parent.getTokenType();
                    pickedAlternative = true;
                    break;
                  }

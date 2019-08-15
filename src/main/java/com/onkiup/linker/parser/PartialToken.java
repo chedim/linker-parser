@@ -17,7 +17,6 @@ import org.reflections.scanners.SubTypesScanner;
 import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
 
-
 // in 0.2.2:
 // - bound X to Rule
 // - added C type parameter
@@ -40,6 +39,7 @@ public final class PartialToken<C, X> {
   private boolean populated = false;
   private TokenMatcher matcher;
   private ParserLocation location;
+  private StringBuilder taken = new StringBuilder();
 
   protected PartialToken(Class<X> tokenType, ParserLocation location) { 
     this.tokenType = tokenType;
@@ -158,8 +158,16 @@ public final class PartialToken<C, X> {
       }
     }
 
+    if (value instanceof String) {
+      taken.append(value);
+    }
+
     values[populatedFields] = value;
     this.populatedFields = populatedFields + 1;
+  }
+  
+  public StringBuilder getTaken() {
+    return taken;
   }
 
   public int getPopulatedFieldCount() {
@@ -283,12 +291,31 @@ public final class PartialToken<C, X> {
   public String toString() {
     String memberId = collection.size() > 0 ? "#" + collection.size() : 
         variants != null && variants.size() > 0 ? "?" + currentAlternative : "";
-    String members = collection.size() > 0 ? '\n' + collection.stream().map(Object::toString).collect(Collectors.joining(", ")) : "";
+    String members = collection.size() > 0 ? '\n' + collection.stream().map(Object::toString).collect(Collectors.joining("\n\t")) : "";
+    StringBuilder fieldsDump = new StringBuilder();
+    if (fields != null) {
+      for (int i = populatedFields; i > -1; i--) {
+        fieldsDump.append("\t");
+        if (i == populatedFields) {
+          fieldsDump.append("-->");
+        } else {
+          fieldsDump.append("   ");
+        }
+        if (i < fields.length) {
+          fieldsDump.append(" " + fields[i].getType().getSimpleName() + " " + fields[i].getName())
+            .append(" = ")
+            .append(values[i]);
+        }
+        fieldsDump.append("\n");
+      }
+    }
     return new StringBuilder()
       .append(String.format("%-32s", tokenType.getSimpleName() + memberId))
       .append(" @ ")
       .append(location.toString())
+      .append("\n")
       .append(members)
+      .append(fieldsDump)
       .toString();
   }
 

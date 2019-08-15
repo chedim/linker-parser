@@ -77,13 +77,13 @@ public class TokenGrammarTest {
 
   // bug in < 0.3.4
   @Test
-  public void testOptionalEnding() throws Exception {
+  public void testOptionalFields() throws Exception {
     TokenGrammar<?, OptionalGrammarWrapper> grammar = TokenGrammar.forClass(OptionalGrammarWrapper.class);
 
     OptionalGrammarWrapper result = grammar.parse(new StringReader(": "));
     Assert.assertNotNull(result);
     Assert.assertNotNull(result.test);
-    Assert.assertEquals("", result.test.command);
+    Assert.assertEquals(null, result.test.command);
   }
 
   // bug in < 0.3.3 

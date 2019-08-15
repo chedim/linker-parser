@@ -59,6 +59,10 @@ public class ParserState {
     buffer = new StringBuilder(buffer.substring(characters));
   }
 
+  public void returnToBuffer(StringBuilder characters ) {
+    buffer = characters.append(buffer);
+  }
+
   public String lineSource() {
     return lineSource.toString();
   }
