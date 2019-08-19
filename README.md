@@ -16,7 +16,7 @@ For example a Java miltiline comment can be defined as follows:
 public class MultilineComment implements Rule {
   private static final String OPEN_MARKER = "/*";
  
-  @CapturePattern(until="*/");
+  @CapturePattern(until="\\*/");
   private String comment;
   
   private static final String CLOSE_MARKER = "*/";
