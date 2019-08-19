@@ -22,5 +22,6 @@ public enum TestResult {
   public TokenTestResult token(int length, Object token) {
     return new TokenTestResult(this, length, token);
   }
+
 }
 

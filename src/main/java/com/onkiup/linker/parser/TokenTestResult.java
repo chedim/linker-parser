@@ -15,6 +15,10 @@ public class TokenTestResult {
     return result;
   }
 
+  public void setTokenLength(int length) {
+    this.length = length;
+  }
+
   public int getTokenLength() {
     return length;
   }
@@ -37,6 +41,11 @@ public class TokenTestResult {
 
   public boolean isMatchContinue() {
     return result == TestResult.MATCH_CONTINUE;
+  }
+
+  @Override
+  public String toString() {
+    return "TestResult: " + result + " (" + token + ") ";
   }
 }
 

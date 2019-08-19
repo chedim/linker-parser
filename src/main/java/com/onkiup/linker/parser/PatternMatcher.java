@@ -12,10 +12,15 @@ public class PatternMatcher implements TokenMatcher {
   public PatternMatcher(CapturePattern pattern) {
     String matcherPattern = pattern.pattern();
     if (matcherPattern.length() == 0) {
-      if (pattern.until().length() == 0) {
-        throw new IllegalArgumentException("Either pattern or until must be specified");
+      String value = pattern.value();
+      if (value.length() == 0) {
+        if (pattern.until().length() == 0) {
+          throw new IllegalArgumentException("Either pattern or until must be specified");
+        } else {
+          matcherPattern = pattern.until();
+        }
       } else {
-        matcherPattern = pattern.until();
+        matcherPattern = value;
       }
     }
     this.pattern = Pattern.compile(matcherPattern);
@@ -34,7 +39,7 @@ public class PatternMatcher implements TokenMatcher {
     if (until.length() == 0) {
       if(hitEnd && lookingAt && matches) {
         return TestResult.matchContinue(buffer.length(), buffer.toString());
-      } else if (lookingAt && !matches) {
+      } else if (lookingAt) {
         if (replacement != null && replacement.length() > 0) {
           StringBuffer result = new StringBuffer();
           matcher.appendReplacement(result, replacement);
@@ -47,9 +52,16 @@ public class PatternMatcher implements TokenMatcher {
         return TestResult.fail();
       }
     } else {
-      if (matcher.find()) {
-        String token = matcher.replaceAll(replacement == null ? "" : replacement);
-        return TestResult.match(token.length(), token);
+      if (matches || matcher.find()) {
+        if (replacement != null && replacement.length() > 0) {
+          String token = matcher.replaceAll(replacement);
+          return TestResult.match(buffer.length(), token);
+        } else if (lookingAt) {
+          return TestResult.fail();
+        } else {
+          String token = buffer.substring(0, matcher.start());
+          return TestResult.match(matcher.start(), token);
+        }
       } else {
         return TestResult.matchContinue(buffer.length(), buffer.toString());
       }

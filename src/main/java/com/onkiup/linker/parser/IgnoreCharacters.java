@@ -5,12 +5,9 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+@Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.FIELD)
-public @interface CapturePattern {
-  String value() default "";
-  String pattern() default "";
-  String replacement() default "";
-  String until() default "";
+public @interface IgnoreCharacters {
+  String value();
 }
 

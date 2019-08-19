@@ -14,7 +14,7 @@ plugins {
 }
 
 project.group = 'com.onkiup'
-project.version = '0.3.3'
+project.version = '0.3.4'
 
 compileJava   {
   sourceCompatibility = '1.8'
@@ -31,7 +31,8 @@ repositories {
 // In this section you declare the dependencies for your production and test code
 dependencies {
     // The production code uses the SLF4J logging API at compile time
-    compile 'org.slf4j:slf4j-api:1.7.21'
+    compile 'org.slf4j:slf4j-api:+'
+    compile 'org.slf4j:slf4j-simple:+'
     // https://mvnrepository.com/artifact/org.reflections/reflections
     compile group: 'org.reflections', name: 'reflections', version: '0.9.11'
 

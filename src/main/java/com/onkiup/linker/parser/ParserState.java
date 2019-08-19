@@ -2,34 +2,35 @@ package com.onkiup.linker.parser;
 
 import java.io.Reader;
 import java.lang.reflect.Field;
+import java.util.LinkedList;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ParserState {
+  private static Logger logger = LoggerFactory.getLogger(ParserState.class);
   private Reader source;
   private StringBuilder buffer = new StringBuilder();
   private StringBuilder lineSource = new StringBuilder();
   private int line, col, lastCharCode;
-  private String ignoredCharacters;
   private String sourceName;
   private ConcurrentLinkedDeque<PartialToken<?, ?>> trace = new ConcurrentLinkedDeque<>();
 
-  public ParserState(String sourceName, Reader source, String ignoredCharacters) {
+  public ParserState(String sourceName, Reader source) {
     this.sourceName = sourceName;
     this.source = source;
-    this.ignoredCharacters = ignoredCharacters;
-  }
-
-  public ParserState(Reader source, String ignoredCharacters) {
-    this(null, source, ignoredCharacters);
   }
 
   public ParserState(Reader source) {
-    this(source, "");
+    this("", source);
   }
 
   public boolean advance() {
     try {
       lastCharCode = source.read();
+      logger.info("Advancing to character '"+ lastCharCode + "' (" + line + ':' + col + ")");
       if (lastCharCode < 0) {
         return false;
       }
@@ -44,23 +45,23 @@ public class ParserState {
         lineSource.append(character);
         col++;
       }
+      buffer.append((char)character);
+      logger.info("Buffer: '"+buffer+"'");
       
-      if (ignoredCharacters.indexOf(character) < 0) {
-        buffer.append(character);
-      }
-
       return true;
     } catch (Exception e) {
       throw new RuntimeException(toString(), e);
     }
   }
 
-  public void drop(int characters) {
+  public String drop(int characters) {
+    String dropped = buffer.substring(0, characters);
     buffer = new StringBuilder(buffer.substring(characters));
+    return dropped;
   }
 
   public void returnToBuffer(StringBuilder characters ) {
-    buffer = characters.append(buffer);
+    buffer = new StringBuilder(characters.toString()).append(buffer.toString());
   }
 
   public String lineSource() {
@@ -107,6 +108,65 @@ public class ParserState {
     return trace.size();
   }
 
+  public boolean hasAlternatives() {
+    for (PartialToken token : trace) {
+      if (token.hasAlternativesLeft()) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  public boolean discardAlternative() throws SyntaxError {
+    PartialToken token = token();
+    LinkedList<PartialToken> discarded = new LinkedList<>();
+
+    PartialToken parent;
+    boolean pickedAlternative = false;
+    while (null != (parent = pop())) {
+      if (parent.hasAlternativesLeft()) {
+        logger.info("Advancing to the next alternative for " + parent.getTokenType().getSimpleName() + "...");
+         parent.advanceAlternative(lineSource());
+         logger.info("Next alternative: " + parent.getCurrentAlternative());
+         push(parent);
+         pickedAlternative = true;
+         token = parent;
+         break;
+       } else if (parent.isFieldOptional()) {
+         logger.info("Ignoring optional field...");
+         parent.populateField(null);
+         push(parent);
+         token = parent;
+         pickedAlternative = true;
+         break;
+       } else if (parent.getTokenType().isArray()) {
+         logger.info("Finished populating array '" + token +"'");
+         pickedAlternative = true;
+         parent.setPopulated();
+         push(parent);
+         token = parent;
+         break;
+       }
+      logger.info("Discarging: " + parent);
+      StringBuilder taken = parent.getTaken();
+      logger.info("Returning taken: '" + taken + "'");
+      returnToBuffer(taken);
+      discarded.addFirst(parent);
+    }
+  
+    if (!pickedAlternative) {
+      discarded.forEach(this::push);
+      if (parent == null) {
+        throw new SyntaxError("Expected " + token().getTokenType() + " with matcher " + token().getMatcher(), this);
+      } else {
+        throw new SyntaxError("Expected " + parent, this);
+      }
+    }
+
+    return true;
+  }
+
   @Override
   public String toString() {
     StringBuilder result = new StringBuilder();
@@ -119,6 +179,13 @@ public class ParserState {
       result.append("Field: ")
         .append(field)
         .append('\n');
+    }
+    String ignoreCharacters = token.getIgnoreCharacters();
+    if (ignoreCharacters != null && ignoreCharacters.length() > 0) {
+      result.append("IgnoredCharacters: " + ignoreCharacters.chars().boxed().map(Object::toString).collect(Collectors.joining(", ")) + "\n");
+    }
+    if (empty()) {
+      result.append("Empty: true\n");
     }
     if (matcher != null) {
       result.append("Matcher: ")

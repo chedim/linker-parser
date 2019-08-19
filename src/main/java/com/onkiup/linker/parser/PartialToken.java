@@ -5,6 +5,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -16,12 +17,15 @@ import org.reflections.Reflections;
 import org.reflections.scanners.SubTypesScanner;
 import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 // in 0.2.2:
 // - bound X to Rule
 // - added C type parameter
 // - added evauation logic
 public final class PartialToken<C, X> {
+  private static final Logger logger = LoggerFactory.getLogger(PartialToken.class);
   private static final Reflections reflections  = new Reflections(new ConfigurationBuilder()
         .setUrls(ClasspathHelper.forClassLoader(TokenGrammar.class.getClassLoader()))
         .setScanners(new SubTypesScanner(true))
@@ -40,18 +44,55 @@ public final class PartialToken<C, X> {
   private TokenMatcher matcher;
   private ParserLocation location;
   private StringBuilder taken = new StringBuilder();
+  private String ignoreCharacters;
 
   protected PartialToken(Class<X> tokenType, ParserLocation location) { 
     this.tokenType = tokenType;
     this.location = location;
     if (!TokenGrammar.isConcrete(tokenType)) {
-      variants = reflections.getSubTypesOf(tokenType).stream()
-        .filter(TokenGrammar::isConcrete)
-        .collect(Collectors.toList());
+      if (tokenType.isAnnotationPresent(Alternatives.class)) {
+        variants = Arrays.asList(tokenType.getAnnotation(Alternatives.class).value());
+      } else {
+        variants = reflections.getSubTypesOf(tokenType).stream()
+          .filter(type -> {
+            Class superClass = type.getSuperclass();
+            if (superClass != tokenType) {
+              Class[] interfaces = type.getInterfaces();
+              for (Class iface : interfaces) {
+                if (iface == tokenType) {
+                  return true;
+                }
+              }
+              logger.info("Ignoring " + type + " (extends: " + superClass + ") ");
+              return false;
+            }
+            return true;
+          })
+          .collect(Collectors.toList());
+      }
       variantFails = new LinkedList<>();
     } else if (Rule.class.isAssignableFrom(tokenType)) {
       this.fields = tokenType.getDeclaredFields();
       this.values = new Object[this.fields.length];
+    }
+
+    if (tokenType.isAnnotationPresent(IgnoreCharacters.class)) {
+      ignoreCharacters = tokenType.getAnnotation(IgnoreCharacters.class).value();
+    }
+  }
+
+  public String getIgnoreCharacters() {
+    return ignoreCharacters;
+  }
+
+  public void appendIgnoreCharacters(String characters) {
+    if (characters == null) {
+      return;
+    }
+    if (ignoreCharacters == null) {
+      ignoreCharacters = characters;
+    } else {
+      ignoreCharacters += characters;
     }
   }
 
@@ -79,6 +120,7 @@ public final class PartialToken<C, X> {
 
     token = (X) value;
     populated = true;
+    logger.info("Resolved '" + tokenType + "' to " + token);
   }
 
   public X finalize(C context) {
@@ -89,6 +131,8 @@ public final class PartialToken<C, X> {
     if (fields == null && !tokenType.isArray()) { 
       throw new IllegalStateException("Cannot finalize terminal token with compound values");
     }
+
+    logger.info("Finalizing " + this);
 
     try {
       if (tokenType.isArray()) {
@@ -147,6 +191,7 @@ public final class PartialToken<C, X> {
   public void populateField(Object value) {
     int populatedFields = getPopulatedFieldCount();
     Field field = fields[populatedFields];
+    logger.info("Populating field " + field.getName() + " with value '" + value + "' ");
     if (field.getType().isArray() && field.isAnnotationPresent(CaptureLimit.class)) {
       CaptureLimit limit = field.getAnnotation(CaptureLimit.class);
       Object[] values = (Object[]) value;
@@ -158,14 +203,15 @@ public final class PartialToken<C, X> {
       }
     }
 
-    if (value instanceof String) {
-      taken.append(value);
-    }
-
     values[populatedFields] = value;
     this.populatedFields = populatedFields + 1;
   }
   
+  public void appendTaken(String characters) {
+    taken.append(characters);
+    logger.info("Taken: '" + taken + "'");
+  }
+
   public StringBuilder getTaken() {
     return taken;
   }
@@ -287,11 +333,35 @@ public final class PartialToken<C, X> {
     return this.matcher;
   }
 
+  public TokenTestResult test(StringBuilder buffer) {
+    StringBuilder cleaned; 
+    int ignoredCharacters = 0;
+    if (ignoreCharacters != null) {
+      cleaned = new StringBuilder();
+      for (ignoredCharacters = 0; ignoredCharacters < buffer.length(); ignoredCharacters++) {
+        if (ignoreCharacters.indexOf(buffer.charAt(ignoredCharacters)) < 0) {
+          cleaned.append(buffer.substring(ignoredCharacters));
+          break;
+        }
+      }
+    } else {
+      cleaned = buffer;
+    }
+
+    logger.info("Ignored " + ignoredCharacters + " characters: '" + buffer + "' -> '"+ cleaned + "'");
+    if (cleaned.length() == 0) {
+      return TestResult.matchContinue(buffer.length(), buffer);
+    }
+    TokenTestResult result = matcher.apply(cleaned);
+    result.setTokenLength(result.getTokenLength() + ignoredCharacters);
+    return result;
+  }
+
   @Override
   public String toString() {
     String memberId = collection.size() > 0 ? "#" + collection.size() : 
-        variants != null && variants.size() > 0 ? "?" + currentAlternative : "";
-    String members = collection.size() > 0 ? '\n' + collection.stream().map(Object::toString).collect(Collectors.joining("\n\t")) : "";
+        variants != null && variants.size() > 0 ? "?" + (currentAlternative + 1) + "/" + variants.size() : "";
+    String members = collection.size() > 0 ? "\n\t" + collection.stream().map(Object::toString).collect(Collectors.joining("\n\t")) : "";
     StringBuilder fieldsDump = new StringBuilder();
     if (fields != null) {
       for (int i = populatedFields; i > -1; i--) {
@@ -302,11 +372,26 @@ public final class PartialToken<C, X> {
           fieldsDump.append("   ");
         }
         if (i < fields.length) {
-          fieldsDump.append(" " + fields[i].getType().getSimpleName() + " " + fields[i].getName())
+          Class fieldType = fields[i].getType(); 
+          fieldsDump.append(" " + fieldType.getSimpleName() + " " + fields[i].getName())
             .append(" = ")
-            .append(values[i]);
+            .append(valueToString(values[i]));
         }
         fieldsDump.append("\n");
+      }
+    }
+
+    StringBuilder variantsDump = new StringBuilder();
+    if (variants != null && variants.size() > 0) {
+      for (int i = variants.size() - 1; i > -1; i--) {
+        variantsDump.append("\t");
+        if (i == currentAlternative) {
+          variantsDump.append("-->");
+        } else {
+          variantsDump.append("   ");
+        }
+        variantsDump.append(variants.get(i))
+          .append("\n");
       }
     }
     return new StringBuilder()
@@ -316,7 +401,32 @@ public final class PartialToken<C, X> {
       .append("\n")
       .append(members)
       .append(fieldsDump)
+      .append(variantsDump)
       .toString();
+  }
+
+  private String valueToString(Object value) {
+    if (value == null) {
+      return "null\n";
+    }
+    Class type = value.getClass();
+    StringBuilder result = new StringBuilder(); 
+    if (type.isArray()) {
+      result.append("[\n");
+      Object[] collection = (Object[]) value;
+      for (int i = 0; i < collection.length; i++) {
+        String valueString = collection[i] == null ? "null" : collection[i].toString().replaceAll("\n", "\n\t\t\t");
+        result.append("\t\t")
+          .append(String.format("%-4d", i))
+          .append(valueString)
+          .append("\n");
+      }
+      result.append("\t    ]");
+    } else {
+      result.append(value.toString());
+    }
+    result.append('\n');
+    return result.toString();
   }
 
   protected boolean isTransient(Field field) {

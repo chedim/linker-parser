@@ -8,6 +8,7 @@ public class PatternMatcherTest {
   @Test
   public void testMatch() {
     CapturePattern pattern = Mockito.mock(CapturePattern.class);
+    Mockito.when(pattern.value()).thenReturn("");
     Mockito.when(pattern.pattern()).thenReturn("[^;\\s]+");
     Mockito.when(pattern.replacement()).thenReturn("");
     Mockito.when(pattern.until()).thenReturn("");
@@ -53,6 +54,7 @@ public class PatternMatcherTest {
   public void testUntil() {
     CapturePattern pattern = Mockito.mock(CapturePattern.class);
     Mockito.when(pattern.pattern()).thenReturn("");
+    Mockito.when(pattern.value()).thenReturn("");
     Mockito.when(pattern.replacement()).thenReturn(">($1)<");
     Mockito.when(pattern.until()).thenReturn("(until)");
 
@@ -73,7 +75,19 @@ public class PatternMatcherTest {
     buffer.append("l");
     result = subject.apply(buffer);
     Assert.assertTrue(result.isMatch());
-    Assert.assertEquals(19, result.getTokenLength());
     Assert.assertEquals("some text >(until)<", result.getToken());
+    Assert.assertEquals(15, result.getTokenLength());
+
+    // NO replacement
+    Mockito.when(pattern.replacement()).thenReturn("");
+    Mockito.when(pattern.until()).thenReturn("until");
+    subject = new PatternMatcher(pattern);
+    result = subject.apply(buffer);
+    Assert.assertTrue(result.isMatch());
+    Assert.assertEquals("some text ", result.getToken());
+    Assert.assertEquals(10, result.getTokenLength());
+
+    result = subject.apply(new StringBuilder("until"));
+    Assert.assertEquals(TestResult.FAIL, result.getResult());
   }
 }

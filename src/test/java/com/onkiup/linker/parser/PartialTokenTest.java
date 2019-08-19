@@ -17,6 +17,11 @@ public class PartialTokenTest {
     private transient String lastTransient;
   }
 
+  @IgnoreCharacters(" \t\n")
+  public static class TestGrammarIgnoreCharacters implements Rule {
+    private Integer number;
+  }
+
   @Test
   public void testSkippingTransientFields() {
     PartialToken token = new PartialToken(TestGrammarWithTransientFields.class, null);
@@ -33,6 +38,29 @@ public class PartialTokenTest {
     }
 
     assertTrue(token.isPopulated());
+  }
+
+  @Test
+  public void testReturnsTaken() {
+    PartialToken token = new PartialToken(TestGrammarWithTransientFields.class, null);
+    
+    token.populateField("test");
+    token.appendTaken("test");
+    token.populateField(null);
+
+    StringBuilder result = token.getTaken();
+
+    assertEquals("test", result.toString());
+  }
+
+  @Test
+  public void testIgnoringCharacters() throws Exception {
+    PartialToken token = new PartialToken(TestGrammarIgnoreCharacters.class, null);
+    token.setMatcher(new NumberMatcher(Integer.class));
+
+    TokenTestResult result = token.test(new StringBuilder("  \n\t123"));
+    assertNotNull(result);
+    assertEquals("123", result.getToken());
   }
 }
 
