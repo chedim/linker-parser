@@ -1,5 +1,5 @@
 # linker-parser: JavaCC on steroids.
-Linker-parser is a FSM-backed non-recursive top-down depth-first LL(k) parser that uses Java language to define grammar rules. 
+Linker-parser is a FSM-backed non-recursive top-down LL(k) parser that uses Java language to define grammar rules. 
 
 ## Creating a grammar rule
 Linker-parser grammar rules are defined as Java classes using a set of simple conventions:
@@ -32,7 +32,9 @@ Invoking `TokenGrammar::parse(Reader source)` will read and parse the text from 
 Linker-parser provides support for transpiling into other languages via Rule::transpile hook. Currently this feature is limited to one target language.
 
 ## Evaluating
-Passing a context object as second argument to `TokenGrammar::parse` will cause parser to pass this parameter to `Rule::apply` evaluation callback on each Rule as soon as the rule object is populated.
+Linker-parser will invoke `Rule::reevaluate` callback each time a token field is populated. 
+
+[Linker-Sail](https://github.com/dmitriic/lisa) evaluator rules, for example, use that callback to test whether the rule has been populated (`Rule::populated`) and then recalculate their result value and push it either to its subscriber (parent token), or in case of variable declaration -- store that value as into a shared context which propagates this value to any tokens that subscribe to the variable.
 
 ## Version History
 * 0.3.1 - transient fields now will be ignored
