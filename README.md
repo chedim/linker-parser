@@ -12,7 +12,9 @@ Linker-parser grammar rules are defined as Java classes using a set of simple co
 * Token repititions defined as array fields of corresponding to the token type;
 * Alternatives can be defined as fields of an interface type - each class that implements the interface will be processed as an alternative token; 
 * Repetitions are always greedy;
-* Repetition limits can be defined using Limit annotation;
+* Repetition limits can be defined using `Limit` annotation;
+* Optional fields marked with `Optional` annotation
+* Transient fields are ignored
 
 For example a Java multiline comment can be defined as follows:
 ```java
