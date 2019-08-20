@@ -2,7 +2,9 @@ package com.onkiup.linker.parser;
 
 import java.io.Reader;
 import java.lang.reflect.Field;
+import java.util.HashSet;
 import java.util.LinkedList;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.stream.Collectors;
 
@@ -16,8 +18,9 @@ public class ParserState {
   private StringBuilder lineSource = new StringBuilder();
   private int line, col, lastCharCode;
   private String sourceName;
-  private ConcurrentLinkedDeque<PartialToken<?, ?>> trace = new ConcurrentLinkedDeque<>();
-
+  private ConcurrentLinkedDeque<PartialToken<?>> trace = new ConcurrentLinkedDeque<>();
+  private Set<Class<? extends Rule>> testedAlternatives = new HashSet<>();
+ 
   public ParserState(String sourceName, Reader source) {
     this.sourceName = sourceName;
     this.source = source;
@@ -57,11 +60,17 @@ public class ParserState {
   public String drop(int characters) {
     String dropped = buffer.substring(0, characters);
     buffer = new StringBuilder(buffer.substring(characters));
+    if (characters > 0) {
+      testedAlternatives.clear();
+    }
     return dropped;
   }
 
   public void returnToBuffer(StringBuilder characters ) {
     buffer = new StringBuilder(characters.toString()).append(buffer.toString());
+    if (characters.length() > 0) {
+      testedAlternatives.clear();
+    }
   }
 
   public String lineSource() {
@@ -93,6 +102,9 @@ public class ParserState {
   }
 
   public void push(PartialToken token) {
+    if (trace.size() > 10) {
+      throw new RuntimeException("Stack overflow");
+    }
     trace.push(token);
   }
 
@@ -118,6 +130,10 @@ public class ParserState {
     return false;
   }
 
+  public void registerAlternativeTest(Class<? extends Rule> alternative) {
+    testedAlternatives.add(alternative);
+  }
+
   public boolean discardAlternative() throws SyntaxError {
     PartialToken token = token();
     LinkedList<PartialToken> discarded = new LinkedList<>();
@@ -125,33 +141,51 @@ public class ParserState {
     PartialToken parent;
     boolean pickedAlternative = false;
     while (null != (parent = pop())) {
+      if (parent.hasAlternatives()) {
+        testedAlternatives.add(parent.getCurrentAlternative());
+      }
       if (parent.hasAlternativesLeft()) {
-        logger.info("Advancing to the next alternative for " + parent.getTokenType().getSimpleName() + "...");
-         parent.advanceAlternative(lineSource());
-         logger.info("Next alternative: " + parent.getCurrentAlternative());
-         push(parent);
-         pickedAlternative = true;
-         token = parent;
-         break;
-       } else if (parent.isFieldOptional()) {
-         logger.info("Ignoring optional field...");
-         parent.populateField(null);
-         push(parent);
-         token = parent;
-         pickedAlternative = true;
-         break;
-       } else if (parent.getTokenType().isArray()) {
-         logger.info("Finished populating array '" + token +"'");
-         pickedAlternative = true;
-         parent.setPopulated();
-         push(parent);
-         token = parent;
-         break;
-       }
+        logger.info("Advancing to the next alternative for " + parent.getTokenType().getSimpleName() + "(discarded alternatives: "+
+            testedAlternatives.stream().map(Class::getSimpleName).collect(Collectors.joining(", ")) + ")");
+        Class<? extends Rule> nextAlternative = null;
+        do {
+          if (nextAlternative != null) {
+            logger.info("Discarding already tested alternative: " + nextAlternative.getSimpleName());
+          }
+          nextAlternative = parent.advanceAlternative(lineSource());
+          if (testedAlternatives.contains(nextAlternative)) {
+            nextAlternative = null;
+          }
+        } while (nextAlternative == null && parent.hasAlternativesLeft());
+
+        if (nextAlternative != null) {
+          logger.info("Next alternative: " + nextAlternative);
+          testedAlternatives.add(nextAlternative);
+          push(parent);
+          pickedAlternative = true;
+          token = parent;
+          break;
+        }
+      } else if (parent.isFieldOptional()) {
+        logger.info("Ignoring optional field...");
+        parent.populateField(null);
+        push(parent);
+        token = parent;
+        pickedAlternative = true;
+        break;
+      } else if (parent.getTokenType().isArray()) {
+        logger.info("Finished populating array '" + token +"'");
+        pickedAlternative = true;
+        parent.setPopulated();
+        push(parent);
+        token = parent;
+        break;
+      }
       logger.info("Discarging: " + parent);
       StringBuilder taken = parent.getTaken();
       logger.info("Returning taken: '" + taken + "'");
       returnToBuffer(taken);
+      parent.discard();
       discarded.addFirst(parent);
     }
   
@@ -216,6 +250,13 @@ public class ParserState {
     }
     result.append("----------------------");
     return result.toString();
+  }
+
+  public boolean isInTrace(Class<?> type) {
+    return trace.stream()
+      .filter(partialToken -> partialToken.getTokenType() == type)
+      .findFirst()
+      .isPresent();
   }
 }
 

@@ -9,7 +9,7 @@ import org.junit.Test;
 
 public class TokenGrammarTest {
 
-  public static interface Junction extends Rule<Object> {
+  public static interface Junction extends Rule {
   
   }
 
@@ -39,30 +39,19 @@ public class TokenGrammarTest {
     private String value;
   }
 
-  public static class ArrayToken implements Rule<Object> {
+  public static class ArrayToken implements Rule {
     @CaptureLimit(min=2, max=4)
     private Junction[] tokens = new Junction[3];
   }
 
-  public static class Evaluatable implements Rule<Map<String, Object>> {
-    private static final String VAR_MARKER = "$";
-    @CapturePattern(pattern = "[^\\s\\n;]+")
-    private String varName;
-
-    @Override
-    public void accept(Map<String, Object> context) {
-      context.put(varName, context.get(varName) + "test");
-    }
-  }
-
   // bug in < 0.3.3
-  public static class SubRuleGrammar implements Rule<Object> {
+  public static class SubRuleGrammar implements Rule {
     private static String MARKER = "!";
     private TestGrammarDefinition command;
   }
 
   // bug in < 0.3.4
-  public static class TestGrammarWithOptionalLastField implements Rule<Object> {
+  public static class TestGrammarWithOptionalLastField implements Rule {
     private static final String marker = ":";
     @Optional
     @CapturePattern(pattern="[^\\s\\n]+")
@@ -70,7 +59,7 @@ public class TokenGrammarTest {
   }
 
   // bug in < 0.3.4
-  public static class OptionalGrammarWrapper implements Rule<Object> {
+  public static class OptionalGrammarWrapper implements Rule {
     private TestGrammarWithOptionalLastField test;
     private static final String space = " "; 
   }
@@ -78,7 +67,7 @@ public class TokenGrammarTest {
   // bug in < 0.3.4
   @Test
   public void testOptionalFields() throws Exception {
-    TokenGrammar<?, OptionalGrammarWrapper> grammar = TokenGrammar.forClass(OptionalGrammarWrapper.class);
+    TokenGrammar<OptionalGrammarWrapper> grammar = TokenGrammar.forClass(OptionalGrammarWrapper.class);
 
     OptionalGrammarWrapper result = grammar.parse(new StringReader(": "));
     Assert.assertNotNull(result);
@@ -89,7 +78,7 @@ public class TokenGrammarTest {
   // bug in < 0.3.3 
   @Test
   public void testSubRule() throws Exception {
-    TokenGrammar<?, SubRuleGrammar> grammar = TokenGrammar.forClass(SubRuleGrammar.class);
+    TokenGrammar<SubRuleGrammar> grammar = TokenGrammar.forClass(SubRuleGrammar.class);
     Assert.assertNotNull(grammar);
 
     SubRuleGrammar result = grammar.parse(new StringReader("!:test"));
@@ -100,7 +89,7 @@ public class TokenGrammarTest {
 
   @Test
   public void testGrammar() throws Exception {
-    TokenGrammar<?, TestGrammarDefinition> grammar = TokenGrammar.forClass(TestGrammarDefinition.class);
+    TokenGrammar<TestGrammarDefinition> grammar = TokenGrammar.forClass(TestGrammarDefinition.class);
     Assert.assertNotNull(grammar);
     TestGrammarDefinition token = grammar.parse(new StringReader(":test"));
     Assert.assertEquals("test", token.command);
@@ -108,7 +97,7 @@ public class TokenGrammarTest {
 
   @Test
   public void testTrailingCharactersException() throws Exception {
-    TokenGrammar<?, TestGrammarDefinition> grammar = TokenGrammar.forClass(TestGrammarDefinition.class);
+    TokenGrammar<TestGrammarDefinition> grammar = TokenGrammar.forClass(TestGrammarDefinition.class);
     Assert.assertNotNull(grammar);
     try {
       TestGrammarDefinition result = grammar.parse(new StringReader(":test; :another;"));
@@ -120,7 +109,7 @@ public class TokenGrammarTest {
 
   @Test
   public void testJunction() throws Exception {
-    TokenGrammar<Object, Junction> grammar = TokenGrammar.forClass(Junction.class);
+    TokenGrammar<Junction> grammar = TokenGrammar.forClass(Junction.class);
     Assert.assertNotNull(grammar);
 
     Junction result = grammar.parse(new StringReader("// comment"));
@@ -131,7 +120,7 @@ public class TokenGrammarTest {
 
   @Test
   public void testCapture() throws Exception {
-    TokenGrammar<Object, Junction> grammar = TokenGrammar.forClass(Junction.class);
+    TokenGrammar<Junction> grammar = TokenGrammar.forClass(Junction.class);
     Assert.assertNotNull(grammar);
 
     Junction result = grammar.parse(new StringReader("/* comment */"));
@@ -139,19 +128,8 @@ public class TokenGrammarTest {
   }
 
   @Test
-  public void testEvaluation() throws Exception {
-    TokenGrammar<Map<String, Object>, Evaluatable> grammar = TokenGrammar.forClass(Evaluatable.class);
-
-    Map<String, Object> context = new HashMap<>();
-    context.put("test", 100);
-
-    grammar.parse(new StringReader("$test"), context);
-    Assert.assertEquals("100test", context.get("test"));
-  }
-
-  @Test
   public void testArrayCapture() throws Exception {
-    TokenGrammar<Object, ArrayToken> grammar = TokenGrammar.forClass(ArrayToken.class);
+    TokenGrammar<ArrayToken> grammar = TokenGrammar.forClass(ArrayToken.class);
     String test = ":hello; // comment\n/* multiline\ncomment */";
 
     ArrayToken result = grammar.parse(new StringReader(test));
@@ -179,7 +157,7 @@ public class TokenGrammarTest {
 
   @Test
   public void testArrayCaptureLimit() throws Exception {
-    TokenGrammar<Object, ArrayToken> grammar = TokenGrammar.forClass(ArrayToken.class);
+    TokenGrammar<ArrayToken> grammar = TokenGrammar.forClass(ArrayToken.class);
     try {
       ArrayToken result = grammar.parse(new StringReader(":test"));
       Assert.fail("CaptureLimit min is ignored");

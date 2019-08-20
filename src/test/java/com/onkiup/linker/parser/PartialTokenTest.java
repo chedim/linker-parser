@@ -24,7 +24,7 @@ public class PartialTokenTest {
 
   @Test
   public void testSkippingTransientFields() {
-    PartialToken token = new PartialToken(TestGrammarWithTransientFields.class, null);
+    PartialToken token = new PartialToken(null, TestGrammarWithTransientFields.class, null);
 
     assertFalse(token.isPopulated());
     int fieldCount, expectedFields = 2;
@@ -42,7 +42,7 @@ public class PartialTokenTest {
 
   @Test
   public void testReturnsTaken() {
-    PartialToken token = new PartialToken(TestGrammarWithTransientFields.class, null);
+    PartialToken token = new PartialToken(null, TestGrammarWithTransientFields.class, null);
     
     token.populateField("test");
     token.appendTaken("test");
@@ -55,12 +55,23 @@ public class PartialTokenTest {
 
   @Test
   public void testIgnoringCharacters() throws Exception {
-    PartialToken token = new PartialToken(TestGrammarIgnoreCharacters.class, null);
+    PartialToken token = new PartialToken(null, TestGrammarIgnoreCharacters.class, null);
     token.setMatcher(new NumberMatcher(Integer.class));
 
     TokenTestResult result = token.test(new StringBuilder("  \n\t123"));
     assertNotNull(result);
     assertEquals("123", result.getToken());
+  }
+
+  @Test
+  public void testMetadata() throws Exception {
+    PartialToken<TestGrammarIgnoreCharacters> parentToken = new PartialToken(null, TestGrammarIgnoreCharacters.class, null);
+    PartialToken<TestGrammarIgnoreCharacters> childToken = new PartialToken(parentToken, TestGrammarIgnoreCharacters.class, null);
+
+    TestGrammarIgnoreCharacters parent = parentToken.getToken();
+    TestGrammarIgnoreCharacters child = childToken.getToken();
+    assertNotNull(child);
+    assertEquals(parent, child.parent());
   }
 }
 

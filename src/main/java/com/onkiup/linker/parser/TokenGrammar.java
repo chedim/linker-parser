@@ -8,13 +8,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 // at 0.2.2:
-// - added "C" type parameter
 // - replaced all "evaluate" flags with context
-public class TokenGrammar<C, X extends Rule<C>> {
+public class TokenGrammar<X extends Rule> {
   private static final Logger logger = LoggerFactory.getLogger(TokenGrammar.class);
   private Class<X> type;
 
-  public static <CC, XX extends Rule<CC>> TokenGrammar<CC, XX> forClass(Class<XX> type) {
+  public static <XX extends Rule> TokenGrammar<XX> forClass(Class<XX> type) {
     return new TokenGrammar<>(type);
   }
 
@@ -34,8 +33,8 @@ public class TokenGrammar<C, X extends Rule<C>> {
     return parse(source, null);
   }
 
-  public X parse(Reader source, C context)  throws SyntaxError {
-    X result = tokenize(source, context);
+  public X parse(Reader source, Object context)  throws SyntaxError {
+    X result = tokenize(source);
     StringBuilder tail = new StringBuilder();
     try {
       int nextChar;
@@ -52,17 +51,17 @@ public class TokenGrammar<C, X extends Rule<C>> {
     return result;
   }
 
-  public X tokenize(Reader source, C context) throws SyntaxError {
+  public X tokenize(Reader source) throws SyntaxError {
     try {
       ParserState state = new ParserState("", source);
-      state.push(new PartialToken<C, X>(type, state.location()));
+      state.push(new PartialToken<X>(null, type, state));
       TokenTestResult testResult = null;
       boolean hitEnd = false;
 
       do {
         logger.info("----------------------------------------------------------------------------------------");
         logger.info(state.toString());
-        PartialToken<C, ?> token = state.token();
+        PartialToken<?> token = state.token();
         Class type = token.getTokenType();
         Field field = token.getCurrentField();
         TokenMatcher matcher = token.getMatcher();
@@ -71,13 +70,14 @@ public class TokenGrammar<C, X extends Rule<C>> {
           if (matcher == null) {
             if (type.isArray()) {
               logger.info("Populating an array field...");
-              state.push(new PartialToken(type.getComponentType(), state.location()));
+              state.push(new PartialToken(token, type.getComponentType(), state));
               continue;
             } if (!isConcrete(type)) {
               logger.info("Trying a junction field...");
               try {
                 Class variant = token.getCurrentAlternative();
-                state.push(new PartialToken(variant, state.location()));
+                state.registerAlternativeTest(variant);
+                state.push(new PartialToken(token, variant, state));
               } catch (IndexOutOfBoundsException ioobe) {
                 logger.info("No variants were available!");
                 state.discardAlternative();
@@ -91,7 +91,7 @@ public class TokenGrammar<C, X extends Rule<C>> {
               PartialToken child;
               if (field.isAnnotationPresent(CustomMatcher.class)) {
                 Class<? extends TokenMatcher> matcherType = field.getAnnotation(CustomMatcher.class).value();
-                child = new PartialToken(fieldType, state.location());
+                child = new PartialToken(token, fieldType, state);
                 try {
                   child.setMatcher(matcherType.newInstance());
                 } catch (Exception e) {
@@ -99,13 +99,13 @@ public class TokenGrammar<C, X extends Rule<C>> {
                 }
               } else if (!isConcrete(fieldType)) {
                 logger.info("Descending to non-concrete field...");
-                child = new PartialToken(fieldType, state.location());
+                child = new PartialToken(token, fieldType, state);
               } else if (fieldType.isArray()) {
                 logger.info("Descending to populate array field...");
-                child = new PartialToken(fieldType, state.location());
+                child = new PartialToken(token, fieldType, state);
               } else {
                 logger.info("Creating matcher...");
-                child = new PartialToken(field.getType(), state.location());
+                child = new PartialToken(token, field.getType(), state);
                 if (String.class.isAssignableFrom(fieldType)) {
                   if (Modifier.isStatic(field.getModifiers())) {
                     field.setAccessible(true);
@@ -173,7 +173,7 @@ public class TokenGrammar<C, X extends Rule<C>> {
           state.pop();
           if (Rule.class.isAssignableFrom(type) || type.isArray()) {
             if (isConcrete(type) || type.isArray()) {
-              token.finalize(context);
+              token.finalizeToken();
             }
           } 
 
@@ -185,7 +185,7 @@ public class TokenGrammar<C, X extends Rule<C>> {
  
           Object value = token.getToken();
           String taken = token.getTaken().toString();
-          PartialToken<C, ?> parent = (PartialToken<C, ?>) state.token();
+          PartialToken<?> parent = (PartialToken<?>) state.token();
           Class parentType = parent.getTokenType();
           if (parentType.isArray()) {
             parent.add(value);

@@ -1,35 +1,56 @@
 package com.onkiup.linker.parser;
 
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
+// in 0.4:
+// - changed Metadata to hold PartialTokens instead of ParserLocations
 // in 0.2.2:
 // - added "C" type parameter
 // - made it implement Consumer
-public interface Rule<C> extends Consumer<C> {
+public interface Rule {
 
   static class Metadata {
-    private static HashMap<Rule, ParserLocation> ruleLocations = new HashMap<>();
+    private static ConcurrentHashMap<Rule, PartialToken> metadata = new ConcurrentHashMap<>();
 
-    public static ParserLocation ruleLocation(Rule rule) {
-      return ruleLocations.get(rule);
+    public static PartialToken metadata(Rule rule) {
+      return metadata.get(rule);
     }
 
-    static void ruleLocation(Rule rule, ParserLocation location) {
-      ruleLocations.put(rule, location);
+    static void metadata(Rule rule, PartialToken token) {
+      metadata.put(rule, token);
     }
-  }
 
-  default void accept(C context) {
-    throw new RuntimeException("Not implemented");
-  }
-
-  default String transpile() {
-    throw new RuntimeException("Not implemented");
+    static void remove(Rule rule) {
+      metadata.remove(rule);
+    }
   }
 
   default ParserLocation location() {
-    return Metadata.ruleLocation(this);
+    return Metadata.metadata(this).getLocation();
+  }
+
+  default Rule parent() {
+    PartialToken metadata = Metadata.metadata(this);
+    if (metadata != null) {
+      PartialToken parent = metadata.getParent();
+      if (parent != null) {
+        return (Rule) parent.getToken();
+      }
+    }
+    return null;
+  }
+
+  default boolean populated() {
+    PartialToken metadata = Metadata.metadata(this);
+    if (metadata != null) {
+      return metadata.isPopulated();
+    }
+    return false;
+  }
+
+  default void reevaluate() {
+    
   }
 }
 

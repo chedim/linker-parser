@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.reflections.Reflections;
@@ -20,11 +21,16 @@ import org.reflections.util.ConfigurationBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+// in 0.4:
+// - removed evaluation callbacks
+// - removed C type parameter
+// - Added parent
+// - Fields are now populated in populateField and not finalize(C)
 // in 0.2.2:
 // - bound X to Rule
 // - added C type parameter
 // - added evauation logic
-public final class PartialToken<C, X> {
+public final class PartialToken<X> {
   private static final Logger logger = LoggerFactory.getLogger(PartialToken.class);
   private static final Reflections reflections  = new Reflections(new ConfigurationBuilder()
         .setUrls(ClasspathHelper.forClassLoader(TokenGrammar.class.getClassLoader()))
@@ -41,18 +47,24 @@ public final class PartialToken<C, X> {
   private List<String> variantFails;
   private LinkedList<Object> collection = new LinkedList<>();
   private boolean populated = false;
+  private boolean finalized = false;
   private TokenMatcher matcher;
   private ParserLocation location;
   private StringBuilder taken = new StringBuilder();
   private String ignoreCharacters;
+  private PartialToken<?> parent;
 
-  protected PartialToken(Class<X> tokenType, ParserLocation location) { 
+  protected PartialToken(PartialToken<?> parent, Class<X> tokenType, ParserState state) { 
+    this.parent = parent;
     this.tokenType = tokenType;
-    this.location = location;
+    if (state != null) {
+      this.location = state.location();
+    }
     if (!TokenGrammar.isConcrete(tokenType)) {
       if (tokenType.isAnnotationPresent(Alternatives.class)) {
         variants = Arrays.asList(tokenType.getAnnotation(Alternatives.class).value());
       } else {
+        final ConcurrentHashMap<Class, Integer> typePriorities = new ConcurrentHashMap<>();
         variants = reflections.getSubTypesOf(tokenType).stream()
           .filter(type -> {
             Class superClass = type.getSuperclass();
@@ -68,17 +80,53 @@ public final class PartialToken<C, X> {
             }
             return true;
           })
+          .sorted((sub1, sub2) -> {
+            if (!typePriorities.containsKey(sub1)) {
+              typePriorities.put(sub1, calculatePriority(sub1, state));
+            }
+            if (!typePriorities.containsKey(sub2)) {
+              typePriorities.put(sub2, calculatePriority(sub2, state));
+            }
+
+            return Integer.compare(typePriorities.get(sub1), typePriorities.get(sub2));
+          })
           .collect(Collectors.toList());
       }
       variantFails = new LinkedList<>();
     } else if (Rule.class.isAssignableFrom(tokenType)) {
       this.fields = tokenType.getDeclaredFields();
       this.values = new Object[this.fields.length];
+      try {
+        token = tokenType.newInstance();
+        Rule.Metadata.metadata((Rule)token, this);
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to instantiate " + tokenType, e);
+      }
     }
 
     if (tokenType.isAnnotationPresent(IgnoreCharacters.class)) {
       ignoreCharacters = tokenType.getAnnotation(IgnoreCharacters.class).value();
     }
+  }
+
+  private static int calculatePriority(Class<?> type, ParserState state) {
+    int result = 0;
+    if (!TokenGrammar.isConcrete(type)) {
+      result += 1000;
+    }
+    if (state != null && state.isInTrace(type)) {
+      result += 1000;
+    }
+
+    if (type.isAnnotationPresent(AdjustPriority.class)) {
+      AdjustPriority adjust = type.getAnnotation(AdjustPriority.class);
+      result += adjust.value();
+      logger.info("Adjusted priority by " + adjust.value()); 
+    }
+
+    logger.info(type.getSimpleName() + " priority " + result);
+
+    return result;
   }
 
   public String getIgnoreCharacters() {
@@ -97,7 +145,7 @@ public final class PartialToken<C, X> {
   }
 
   public void finalize(String value) {
-    if (token != null) {
+    if (finalized) {
       throw new IllegalStateException("Already finalized");
     }
 
@@ -107,10 +155,11 @@ public final class PartialToken<C, X> {
 
     this.token = convert(tokenType, value);
     populated = true;
+    finalized = true;
   }
 
   public void resolve(Object value) {
-    if (token != null) {
+    if (finalized) {
       throw new IllegalStateException("Already finalized");
     }
 
@@ -120,11 +169,12 @@ public final class PartialToken<C, X> {
 
     token = (X) value;
     populated = true;
+    finalized = true;
     logger.info("Resolved '" + tokenType + "' to " + token);
   }
 
-  public X finalize(C context) {
-    if (token != null) {
+  public X finalizeToken() {
+    if (finalized) {
       throw new IllegalStateException("Already finalized");
     }
 
@@ -158,9 +208,7 @@ public final class PartialToken<C, X> {
         }
       }
 
-      if (context != null) {
-        ((Rule<C>) token).accept(context);
-      }
+      finalized = true;
       return token;
     } catch (Exception e) {
       throw new RuntimeException(e);
@@ -191,8 +239,9 @@ public final class PartialToken<C, X> {
   public void populateField(Object value) {
     int populatedFields = getPopulatedFieldCount();
     Field field = fields[populatedFields];
+    Class fieldType = field.getType();
     logger.info("Populating field " + field.getName() + " with value '" + value + "' ");
-    if (field.getType().isArray() && field.isAnnotationPresent(CaptureLimit.class)) {
+    if (fieldType.isArray() && field.isAnnotationPresent(CaptureLimit.class)) {
       CaptureLimit limit = field.getAnnotation(CaptureLimit.class);
       Object[] values = (Object[]) value;
       if (values.length < limit.min()) {
@@ -202,6 +251,29 @@ public final class PartialToken<C, X> {
         throw new IllegalStateException("Expected at most " + limit.max() + " entries of '" + field.getType().getComponentType() + "' but got " + values.length);
       }
     }
+
+    value = value == null ? null : convert(fieldType, value);
+
+    // do we have a populator?
+    try {
+      Method populator = tokenType.getMethod(field.getName(), fieldType);
+      // sure we do!
+      populator.invoke(token, value);
+    } catch (NoSuchMethodException nsme) {
+      try {
+        // nope, we don't
+        if (!Modifier.isStatic(field.getModifiers())) {
+          field.setAccessible(true);
+          field.set(token, value);
+        }
+      } catch (Throwable t) {
+        throw new RuntimeException("Failded to populate field " + field, t);
+      }
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to populate field " + field, e);
+    }
+
+    ((Rule)token).reevaluate();
 
     values[populatedFields] = value;
     this.populatedFields = populatedFields + 1;
@@ -254,6 +326,10 @@ public final class PartialToken<C, X> {
 
   public void setPopulated() {
     this.populated = true;
+  }
+
+  public boolean hasAlternatives() {
+    return variants != null && variants.size() > 0;
   }
 
   public boolean hasAlternativesLeft() {
@@ -431,6 +507,20 @@ public final class PartialToken<C, X> {
 
   protected boolean isTransient(Field field) {
     return field != null && Modifier.isTransient(field.getModifiers());
+  }
+
+  public ParserLocation getLocation() {
+    return location;
+  }
+
+  public PartialToken<?> getParent() {
+    return parent;
+  }
+
+  public void discard() {
+    if (token instanceof Rule) {
+      Rule.Metadata.remove((Rule)token);
+    }
   }
 }
 
