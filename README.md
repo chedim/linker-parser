@@ -49,6 +49,8 @@ X -> A
 ```
 Classic LL(k) parser would not be able to handle these rule and fail by falling into infinite loop. Linker-parser deals with such situation by keeping a list of all tested alternative rules for current position and not re-testing rules that are in that list. The list is dropped every time parser changes its current position.
 
+Alternatively, the order in which variations are tested can be manipulated by marking a variation with `AdjustPriority` annotation. Variations are tested in ascending order of their priority level, so variations with smaller priorities are tested first.
+
 
 ## Version History
 * 0.5 - Added left-recursion avoidance logic
