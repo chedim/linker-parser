@@ -34,7 +34,7 @@ Linker-parser provides support for transpiling into other languages via Rule::tr
 ## Evaluating
 Linker-parser will invoke `Rule::reevaluate` callback each time a token field is populated. 
 
-[Linker-Sail](https://github.com/dmitriic/lisa) evaluator rules, for example, use that callback to test whether the rule has been populated (`Rule::populated`) and then recalculate their result value and push it either to its subscriber (parent token), or in case of variable declaration -- store that value as into a shared context which propagates this value to any tokens that subscribe to the variable.
+[Linker-Sail](https://github.com/dmitriic/lisa) evaluator `Rule` definitions, for example, use that callback to test whether the token has been populated (`Rule::populated`) and then recalculate their result value and push it either to its subscriber (parent token), or in case of variable declaration -- store that value as into a shared context which propagates this value to any tokens that subscribe to the variable.
 
 ## Version History
 * 0.3.1 - transient fields now will be ignored
