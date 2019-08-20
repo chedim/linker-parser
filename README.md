@@ -61,7 +61,7 @@ Classic LL(k) parser would not be able to handle these rules and fail by falling
 Alternatively, the order in which variations are tested can be manipulated by marking a variation with `AdjustPriority` annotation. Variations are tested in ascending order of their priority level, so variations with smaller priorities are tested first.
 
 ## Support
-For any questions or issues -- please either open a ticket or tweet directly at twitter.com/chedim and I will do my best to help you. It would help me a lot if you include definitions for your failing rules in the message ;-)
+For any questions or issues -- please either open a ticket or tweet directly at [chedim](http://twitter.com/chedim) and I will do my best to help you. It would help me a lot if you include definitions for your failing rules in the message ;-)
 
 ## Version History
 * 0.5 - Added left-recursion avoidance logic
