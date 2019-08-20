@@ -1,5 +1,5 @@
 # linker-parser: JavaCC on steroids.
-Linker-parser is a FSM-backed non-recursive top-down LL(k) parser that uses Java language to define grammar rules. In other words, it accepts Java classes as grammar definition and instantiates objects from these classes using text it parses as a template.
+Linker-parser is a FSM-backed non-recursive top-down LL(k) parser that uses Java language to define grammar rules. In other words, it accepts Java classes as grammar definitions and instantiates objects from these classes using text it parses as a template.
 
 ## But... Why?
 I started this project out of frustration of working with javacc (*Java* *C*ompiler *C*ompiler), which was created decades ago and is very complicated to use. I also didn't want to deal with BNF notations as Java can be used to describe grammars on itself and I love Java :)
