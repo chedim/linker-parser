@@ -11,7 +11,7 @@ Linker-parser grammar rules are defined as Java classes using a set of simple co
 * Repetitions are always greedy;
 * Repetition limits can be defined using Limit annotation;
 
-For example a Java miltiline comment can be defined as follows:
+For example a Java multiline comment can be defined as follows:
 ```java
 public class MultilineComment implements Rule {
   private static final String OPEN_MARKER = "/*";
@@ -31,7 +31,7 @@ Invoking `TokenGrammar::parse(Reader source)` will read and parse the text from 
 ## Evaluating
 Linker-parser will invoke `Rule::reevaluate` callback each time a token field is populated. 
 
-[Linker-Sail](https://github.com/dmitriic/lisa) evaluator `Rule` definitions, for example, use that callback to test whether the token has been populated (`Rule::populated`) and then recalculate their result value and push it either to its subscriber (parent token), or in case of variable declaration -- store that value as into a shared context which propagates this value to any tokens that subscribe to the variable.
+[Linker-Sail](https://github.com/dmitriic/lisa) evaluator `Rule` definitions, for example, use that callback to test whether the token has been populated (`Rule::populated`) and then recalculate their result value and push it either to its subscriber (parent token), or in case of variable declaration/assignment -- pass that value into shared context which propagates this value to any tokens that subscribe to the variable.
 
 ## Left recursion
 As any leftmost variation parser, Linker-parser is susceptible to infinite loops when processing alternatives that invoke themselves. Consider the following set of rules:
