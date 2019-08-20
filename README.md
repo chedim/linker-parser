@@ -36,7 +36,25 @@ Linker-parser will invoke `Rule::reevaluate` callback each time a token field is
 
 [Linker-Sail](https://github.com/dmitriic/lisa) evaluator `Rule` definitions, for example, use that callback to test whether the token has been populated (`Rule::populated`) and then recalculate their result value and push it either to its subscriber (parent token), or in case of variable declaration -- store that value as into a shared context which propagates this value to any tokens that subscribe to the variable.
 
+## Left recursion
+As any leftmost variation parser, Linker-parser is susceptible to infinite loops when processing alternatives that invoke themselves. Consider the following set of rules:
+
+```java
+public interface Token extends Rule { } 
+public class Test implements Token {
+  private Token token;
+}
+```
+which is equivalent to:
+```
+A -> X
+X -> A 
+```
+Classic LL(k) parser would not be able to handle these rule and fail by falling into infinite loop. Linker-parser deals with such situation by keeping a list of all tested alternative rules for current position and not re-testing rules that are in that list. The list is dropped every time parser changes its current position.
+
+
 ## Version History
+* 0.5 - Added left-recursion avoidance logic
 * 0.3.1 - transient fields now will be ignored
 * 0.3 
   major refactoring from recursive to stack-based algorithm
