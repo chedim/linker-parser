@@ -25,6 +25,10 @@ public class MultilineComment implements Rule {
   private static final String CLOSE_MARKER = "*/";
 }
 ```
+Other examples are available in [Linker-Sail](https://github.com/dmitriic/lisa) project, most interstingly:
+- [BinaryOperatorStatement](https://github.com/dmitriic/lisa/blob/master/src/main/java/com/onkiup/linker/sail/operator/BinaryOperatorStatement.java)
+- [RuleInvocation](https://github.com/dmitriic/lisa/blob/master/src/main/java/com/onkiup/linker/sail/grammar/RuleInvocation.java)
+
 ## Creating a parser
 Invoke `TokenGrammar.forClass(Class<? extends Rule> rule)` with your root token class as parameter.
 
