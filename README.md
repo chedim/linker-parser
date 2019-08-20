@@ -6,7 +6,7 @@ I started this project out of frustration of working with javacc (*Java* *C*ompi
 
 ## Creating a grammar rule
 Linker-parser grammar rules are defined as Java classes using a set of simple conventions:
-* Each field of the class represents a token (other rule or a terminal);
+* Each non-transient field of the class represents a token (other rule or a terminal);
 * Terminal tokens defined using static String fields by setting their values to the token itself;
 * Capture tokens defined as String fields with CapturePattern annotation;
 * Token repititions defined as array fields of corresponding to the token type;
@@ -14,7 +14,6 @@ Linker-parser grammar rules are defined as Java classes using a set of simple co
 * Repetitions are always greedy;
 * Repetition limits can be defined using `Limit` annotation;
 * Optional fields marked with `Optional` annotation
-* Transient fields are ignored
 
 For example a Java multiline comment can be defined as follows:
 ```java
