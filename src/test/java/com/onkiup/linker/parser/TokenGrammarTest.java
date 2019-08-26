@@ -7,6 +7,10 @@ import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
+import com.onkiup.linker.parser.annotation.CapturePattern;
+import com.onkiup.linker.parser.annotation.CaptureLimit;
+import com.onkiup.linker.parser.annotation.Optional;
+
 public class TokenGrammarTest {
 
   public static interface Junction extends Rule {

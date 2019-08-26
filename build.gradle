@@ -11,10 +11,11 @@
 plugins {
   id "java"
   id "maven-publish"
+  id "eclipse"
 }
 
 project.group = 'com.onkiup'
-project.version = '0.5'
+project.version = '0.6'
 
 compileJava   {
   sourceCompatibility = '1.8'
@@ -32,9 +33,10 @@ repositories {
 dependencies {
     // The production code uses the SLF4J logging API at compile time
     compile 'org.slf4j:slf4j-api:+'
-    compile 'org.slf4j:slf4j-simple:+'
+    compile 'org.slf4j:slf4j-log4j12:+'
     // https://mvnrepository.com/artifact/org.reflections/reflections
     compile group: 'org.reflections', name: 'reflections', version: '0.9.11'
+    compile group: 'org.apache.logging.log4j', name: 'log4j-core', version: '2.12.1'
 
 
     // Declare the dependency for your favourite test framework you want to use in your tests.
@@ -42,7 +44,9 @@ dependencies {
     // testCompile dependency to testCompile 'org.testng:testng:6.8.1' and add
     // 'test.useTestNG()' to your build script.
     testCompile 'junit:junit:4.12'
-    testCompile group: 'org.mockito', name: 'mockito-all', version: '1.10.19'
+    testCompile group: 'org.mockito', name: 'mockito-core', version: '3.0.0'
+    testCompile group: 'org.powermock', name: 'powermock-module-junit4', version: '2.0.2'
+    testCompile group: 'org.powermock', name: 'powermock-api-mockito2', version: '2.0.2'
 }
 
 publishing {

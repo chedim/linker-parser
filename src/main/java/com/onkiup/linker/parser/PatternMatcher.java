@@ -3,11 +3,20 @@ package com.onkiup.linker.parser;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.onkiup.linker.parser.annotation.CapturePattern;
+
 public class PatternMatcher implements TokenMatcher {
   private final Pattern pattern;
   private final String replacement;
   private final String until;
   private final Matcher matcher;
+
+  public PatternMatcher(String pattern) {
+    this.pattern = Pattern.compile(pattern);
+    this.matcher = this.pattern.matcher("");
+    this.replacement = "";
+    this.until = "";
+  }
 
   public PatternMatcher(CapturePattern pattern) {
     String matcherPattern = pattern.pattern();
@@ -23,9 +32,9 @@ public class PatternMatcher implements TokenMatcher {
         matcherPattern = value;
       }
     }
-    this.pattern = Pattern.compile(matcherPattern);
     this.replacement = pattern.replacement();
     this.until = pattern.until();
+    this.pattern = Pattern.compile(matcherPattern);
     matcher = this.pattern.matcher("");
   }
 

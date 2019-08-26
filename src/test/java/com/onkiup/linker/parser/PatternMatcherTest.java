@@ -1,7 +1,9 @@
 package com.onkiup.linker.parser;
-import org.mockito.Mockito;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
+
+import com.onkiup.linker.parser.annotation.CapturePattern;
 
 public class PatternMatcherTest {
 

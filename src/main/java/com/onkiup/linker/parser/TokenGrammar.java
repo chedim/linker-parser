@@ -1,11 +1,17 @@
 package com.onkiup.linker.parser;
 
 import java.io.Reader;
-import java.lang.reflect.Field;
+import java.io.StringReader;
 import java.lang.reflect.Modifier;
-import java.util.LinkedList;
+import java.util.Collection;
+import java.util.stream.Collectors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.onkiup.linker.parser.token.ConsumingToken;
+import com.onkiup.linker.parser.token.FailedToken;
+import com.onkiup.linker.parser.token.PartialToken;
 
 // at 0.2.2:
 // - replaced all "evaluate" flags with context
@@ -29,6 +35,10 @@ public class TokenGrammar<X extends Rule> {
     return type;
   }
 
+  public X parse(String source) throws SyntaxError {
+    return parse(new StringReader(source));
+  }
+
   public X parse(Reader source) throws SyntaxError {
     return parse(source, null);
   }
@@ -46,172 +56,104 @@ public class TokenGrammar<X extends Rule> {
     }
 
     if (tail.length() > 0) {
-      throw new RuntimeException("Unmatched trailing symbols: '" + tail + "'");
+      throw new SyntaxError("Unmatched trailing symbols: '" + tail + "'");
     }
     return result;
   }
 
   public X tokenize(Reader source) throws SyntaxError {
+    return tokenize("", source);
+  }
+
+  public X tokenize(String sourceName, Reader source) throws SyntaxError {
+    PartialToken<X> rootToken = PartialToken.forClass(null, type, 0);
+    PartialToken token = rootToken;
+    StringBuilder buffer = new StringBuilder();
+    boolean hitEnd = false;
+    int position = 0, line = 0, col = 0;
     try {
-      ParserState state = new ParserState("", source);
-      state.push(new PartialToken<X>(null, type, state));
-      TokenTestResult testResult = null;
-      boolean hitEnd = false;
-
       do {
-        logger.info("----------------------------------------------------------------------------------------");
-        logger.info(state.toString());
-        PartialToken<?> token = state.token();
-        Class type = token.getTokenType();
-        Field field = token.getCurrentField();
-        TokenMatcher matcher = token.getMatcher();
+        logger.debug("----------------------------------------------------------------------------------------");
+        if (logger.isDebugEnabled()) {
+          Collection<PartialToken> path = token.getPath();
 
-        if (!state.empty()) {
-          if (matcher == null) {
-            if (type.isArray()) {
-              logger.info("Populating an array field...");
-              state.push(new PartialToken(token, type.getComponentType(), state));
-              continue;
-            } if (!isConcrete(type)) {
-              logger.info("Trying a junction field...");
-              try {
-                Class variant = token.getCurrentAlternative();
-                state.registerAlternativeTest(variant);
-                state.push(new PartialToken(token, variant, state));
-              } catch (IndexOutOfBoundsException ioobe) {
-                logger.info("No variants were available!");
-                state.discardAlternative();
-              }
-              continue;
-            } else if (Rule.class.isAssignableFrom(type)) {
-              if (field == null) {
-                throw new RuntimeException(type + " field is null \n" + state);
-              }
-              Class fieldType = field.getType();
-              PartialToken child;
-              if (field.isAnnotationPresent(CustomMatcher.class)) {
-                Class<? extends TokenMatcher> matcherType = field.getAnnotation(CustomMatcher.class).value();
-                child = new PartialToken(token, fieldType, state);
-                try {
-                  child.setMatcher(matcherType.newInstance());
-                } catch (Exception e) {
-                  throw new RuntimeException("Failed to create custom matcher from type " + matcherType, e);
-                }
-              } else if (!isConcrete(fieldType)) {
-                logger.info("Descending to non-concrete field...");
-                child = new PartialToken(token, fieldType, state);
-              } else if (fieldType.isArray()) {
-                logger.info("Descending to populate array field...");
-                child = new PartialToken(token, fieldType, state);
-              } else {
-                logger.info("Creating matcher...");
-                child = new PartialToken(token, field.getType(), state);
-                if (String.class.isAssignableFrom(fieldType)) {
-                  if (Modifier.isStatic(field.getModifiers())) {
-                    field.setAccessible(true);
-                    String pattern = (String) field.get(null);
-                    if (pattern == null) {
-                      throw new IllegalArgumentException("Static String fields MUST have a non-null value \n" + state);
-                    }
-                    child.setMatcher(new TerminalMatcher(pattern));
-                  } else if (field.isAnnotationPresent(CapturePattern.class)) {
-                    CapturePattern pattern = field.getAnnotation(CapturePattern.class);
-                    if (pattern == null) {
-                      throw new IllegalArgumentException("Non-static String fields MUST have CapturePattern annotation\n"+state);
-                    }
-                    child.setMatcher(new PatternMatcher(pattern));
-                  }
-//                } else if (Number.class.isAssignableFrom(fieldType)) {
-//                   child.setMatcher(new NumberMatcher(fieldType));
-                } else if (!Rule.class.isAssignableFrom(fieldType)) {
-                  throw new RuntimeException("Unsupported token type: '"+ fieldType +"'");
-                }
-              }
-              child.appendIgnoreCharacters(token.getIgnoreCharacters());
-              state.push(child);
-              continue;
-            } else {
-              throw new RuntimeException(type + " should implement com.onkiup.linker.parser.Rule interface; ");
-            }
-          } else { // matcher != null
-            testResult = token.test(state.buffer());
-            logger.info(testResult.toString());
-
-            if (testResult.isMatch()) {
-              Object value = testResult.getToken();
-              token.finalize(value.toString());
-              String taken = state.drop(testResult.getTokenLength());
-              token.appendTaken(taken);
-            } else if (testResult.isFailed()){
-              state.discardAlternative();
-              token = state.token();
-              type = token.getTokenType();
-
-              if (!token.isPopulated()) {
-                continue;
-              }
-            }
-          }
-        } 
-
-        if (!state.advance()) {
-          logger.info("!!!!! HIT END !!!!!");
-          hitEnd = true; 
-          if (!token.isPopulated() && !state.empty() && testResult != null && testResult.isMatchContinue()) {
-            logger.info("Force-finalizing MATCH_CONTINUE result");
-            Object value = testResult.getToken();
-            token.finalize((String)value);
-            String taken = state.drop(testResult.getTokenLength());
-            token.appendTaken(taken);
-          } 
+          String trace = (String) path.stream()
+            .map(Object::toString)
+            .collect(Collectors.joining("\n"));
+          logger.debug("Trace:\n{}", trace);
         }
 
-        // tracing back
-        while (token.isPopulated() || (state.empty() && !token.hasRequiredFields())) {
-          logger.info("Tracing back from " + token + " (depth: " + state.depth() + ")");
-          logger.info("Populated: " + token.isPopulated() + "; hit end: " + hitEnd + "; has required fields: " + token.hasRequiredFields() + "; token type: " + type);
-          state.pop();
-          if (Rule.class.isAssignableFrom(type) || type.isArray()) {
-            if (isConcrete(type) || type.isArray()) {
-              token.finalizeToken();
-            }
-          } 
+        while (buffer.length() < 2 && !hitEnd) {
+          int nextChar = source.read();
+          hitEnd = nextChar < 0;
+          if (!hitEnd) {
+            buffer.append((char) nextChar);
 
-          if (state.depth() == 0) {
-            // SUCESS? 
-            logger.info("Evaluation result: \n" + token);
-            return (X) token.getToken();
-          }
- 
-          Object value = token.getToken();
-          String taken = token.getTaken().toString();
-          PartialToken<?> parent = (PartialToken<?>) state.token();
-          Class parentType = parent.getTokenType();
-          if (parentType.isArray()) {
-            parent.add(value);
-            parent.appendTaken(taken);
-          } else if (Rule.class.isAssignableFrom(parentType)) {
-            parent.appendTaken(taken);
-            if (isConcrete(parentType)) {
-              parent.populateField(value);
-            } else {
-              parent.resolve(value);
+            position++;
+            col++;
+
+            if (nextChar == '\n') {
+              line++;
+              col = 0;
             }
           }
-
-         token = parent;
-         type = token.getTokenType();
         }
-        logger.info("Finishing iteration with token " + token + "(populated: " + token.isPopulated() + "; has required fields: " + token.hasRequiredFields() + ")");
-        if (hitEnd && state.hasAlternatives() && state.empty()) {
-          logger.info("Hit end on unpopulated token...");
-          state.discardAlternative();
-        }
-      } while(!state.empty());
 
-      throw new SyntaxError("Unexpected end of input", state);
+        if (buffer.length() > 0 && token instanceof ConsumingToken) {
+          logger.debug("Feeding character '{}' to {}", buffer.charAt(0), token);
+          final ConsumingToken consumingToken = (ConsumingToken) token;
+          boolean consumed = (Boolean)consumingToken.consume(buffer.charAt(0), buffer.length() == 1)
+            .map(Object::toString)
+            .map(returned -> {
+              logger.debug("Token {} returned characters: {}", consumingToken, returned);
+              buffer.replace(0, 1, (String) returned);
+              return false;
+            })
+            .orElseGet(() -> {
+              logger.debug("Discarding consumed by token {} character '{}'", consumingToken, buffer.charAt(0));
+              buffer.delete(0, 1);
+              return true;
+            });
+
+          if (consumed) {
+            // prevents parser from advancing to next token
+            continue;
+          }
+        }
+
+        do {
+          token = (PartialToken) token.advance(buffer.length() == 0).orElse(null);
+          logger.debug("Advanced to token {}", token);
+          if (token instanceof FailedToken) {
+            String returned = (String) token.getToken();
+            logger.info("Received from failed token: '{}'", returned);
+            buffer.append(returned);
+          }
+        } while (token instanceof FailedToken);
+
+
+        if (token == null) {
+          if (buffer.length() > 0 || !hitEnd) {
+            logger.debug("Trying to rotate root token to avoid unmatched characters...");
+            if (rootToken.rotate()) {
+              logger.debug("Rotated root token");
+              token = rootToken;
+              continue;
+            }
+            int nextChar;
+            while (-1 != (nextChar = source.read())) {
+              buffer.append((char)nextChar);
+            }
+            throw new SyntaxError("Unmatched trailing characters: " + buffer);
+          } else {
+            return rootToken.getToken();
+          }
+        }
+      } while(buffer.length() > 0);
+
+      throw new SyntaxError("Unexpected end of input");
     } catch (SyntaxError se) {
-      throw se;
+      throw new RuntimeException("Syntax error at line " + line + ", column " + col, se);
     } catch (Exception e) {
       throw new RuntimeException(e);
     }

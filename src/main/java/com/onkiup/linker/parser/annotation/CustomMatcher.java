@@ -1,13 +1,15 @@
-package com.onkiup.linker.parser;
+package com.onkiup.linker.parser.annotation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-@Target(ElementType.TYPE)
+import com.onkiup.linker.parser.TokenMatcher;
+
 @Retention(RetentionPolicy.RUNTIME)
-public @interface IgnoreCharacters {
-  String value();
+@Target(ElementType.FIELD)
+public @interface CustomMatcher {
+  Class<? extends TokenMatcher> value();    
 }
 

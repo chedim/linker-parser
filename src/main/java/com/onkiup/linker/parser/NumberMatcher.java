@@ -3,6 +3,7 @@ package com.onkiup.linker.parser;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 
+@Deprecated
 public class NumberMatcher implements TokenMatcher {
   private Constructor<? extends Number> pattern;
   private Class<? extends Number> type;
