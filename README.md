@@ -63,6 +63,8 @@ Alternatively, the order in which variations are tested can be manipulated by ma
 For any questions or issues -- please either open a github issue in this project or tweet directly at [chedim](http://twitter.com/chedim) and I will do my best to help you. It would help me a lot if you include definitions for your failing rules in the message ;-)
 
 ## Version History
+* 0.6 - Major refactoring triggered by a design mistake in token rollback logic. 
+  Known bug: this version may not report column/line position correctly
 * 0.5 - Added left-recursion avoidance logic
 * 0.3.1 - transient fields now will be ignored
 * 0.3 
