@@ -140,6 +140,14 @@ public class TokenGrammar<X extends Rule> {
               token = rootToken;
               continue;
             }
+
+            if (rootToken.alternativesLeft() > 0) {
+              logger.debug("Hit end but root token had alternatives left; backtracking the token and continuing with next variant");
+              rootToken.pullback().ifPresent(b -> buffer.insert(0, b));
+              token = rootToken;
+              continue;
+            }
+
             int nextChar;
             while (-1 != (nextChar = source.read())) {
               buffer.append((char)nextChar);

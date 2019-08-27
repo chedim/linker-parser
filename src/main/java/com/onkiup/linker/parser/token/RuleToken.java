@@ -116,6 +116,9 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     StringBuilder result = new StringBuilder();
     for (int i = 0; i < nextField; i++) {
       PartialToken token = values[i];
+      if (token == null) {
+        continue;
+      }
       Field field = fields[i];
       logger.debug("{}: Pulling back token {} from field {}.{}", this, token, field.getDeclaringClass().getSimpleName(), field.getName());
       token.pullback().ifPresent(b -> {

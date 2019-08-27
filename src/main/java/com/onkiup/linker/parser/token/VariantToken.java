@@ -113,7 +113,9 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   public Optional<StringBuilder> pullback() {
     if (isPopulated()) {
       logger.info("Pulling back resolved token {}", token);
-      return token.pullback();
+      PartialToken discarded = token;
+      token = null;
+      return discarded.pullback();
     }
     return Optional.empty();
   }
