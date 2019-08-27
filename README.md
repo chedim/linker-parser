@@ -89,3 +89,9 @@ For any questions or issues -- please either open a github issue in this project
   Support for token repetitions
 * 0.2.2 - first publicly available version
 * -100 - my first parser, used at Politico to parse and normalize HTML for articles migrated from capitalnewyork.com to politico.com (no source code of that parser was used here, only experience) :)
+
+## Development Roadmap
+* Implement object pool for PartialTokens and TokenMatchers
+* Investigate possibility for multi-threaded VariantToken processing
+* Add support for Number terminals
+* Add support for Enum terminals
