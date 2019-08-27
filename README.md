@@ -59,10 +59,29 @@ Classic LL(k) parser would not be able to handle these rules and fail by falling
 
 Alternatively, the order in which variations are tested can be manipulated by marking a variation with `AdjustPriority` annotation. Variations are tested in ascending order of their priority level, so variations with smaller priorities are tested first.
 
+## Token Rotation
+Left-recursive tokens pose another challenge when parsing nested statements like this one:
+```
+1 + 1 + 1
+```
+The problem here is that, as all captures are greedy, any token that defines a binary operator statement would first consume characters `1 + 1` and will be marked as populated, leaving unparsed characters ` + 1` that don't anymore match binary operator statement and are likely to cause parser to throw a SyntaxError. 
+
+To resolve this issue, Linker-Parser will try to rotate children of failing PartialToken before discarding it. A child PartialToken can be rotated only if it satisfies all of these conditions:
+* The PartialToken is populated
+* The resulting token can be assigned to the first field of the PartialToken
+
+Token rotations are similar to tree rotations when balancing BSTs: rotating PartialToken clones its state into a new PartialToken, resets its state and then advances to the second field by assigning created PartialToken its first field.
+
+Rotations can also be attempted on root tokens upon parser unexpectedly hitting end of input.
+
+Token rotations are always performed before testing if the token has any alternatives left and successful rotations prevent parser from advancing to the next possible alternative (as rotated token is an alternative on itself).
+
 ## Support
 For any questions or issues -- please either open a github issue in this project or tweet directly at [chedim](http://twitter.com/chedim) and I will do my best to help you. It would help me a lot if you include definitions for your failing rules in the message ;-)
 
 ## Version History
+* 0.6 - Major refactoring triggered by a design mistake in token rollback logic. 
+  Known bug: this version may not report column/line position correctly
 * 0.5 - Added left-recursion avoidance logic
 * 0.3.1 - transient fields now will be ignored
 * 0.3 
