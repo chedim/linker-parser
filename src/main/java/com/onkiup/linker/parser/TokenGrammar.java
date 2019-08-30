@@ -135,7 +135,8 @@ public class TokenGrammar<X extends Rule> {
         if (token == null) {
           if (buffer.length() > 0 || !hitEnd) {
             logger.debug("Trying to rotate root token to avoid unmatched characters...");
-            if (rootToken.rotate()) {
+            if (rootToken.rotatable()) {
+              rootToken.rotate();
               logger.debug("Rotated root token");
               token = rootToken;
               continue;

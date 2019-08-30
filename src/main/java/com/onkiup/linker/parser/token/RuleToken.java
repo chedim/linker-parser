@@ -25,7 +25,6 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   private PartialToken<? extends Rule> parent;
   private String ignoreCharacters = ""; 
   private int nextField;
-  private boolean populated = false;
   private final int position;
   private int nextTokenPosition;
   private boolean rotated = false;
@@ -71,7 +70,8 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
         Field field = fields[backField];
 
         logger.debug("Trying to rotate token {}", token);
-        if (token.rotate()) {
+        if (token.rotatable()) {
+          token.rotate();
           logger.debug("Rotated token {}", token);
           rotated = true;
           break;
@@ -172,6 +172,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
 
       if (isPopulated()) {
         logger.debug("Force-populated token {}", this);
+        sortPriorities();
         return parent == null ? Optional.empty() : parent.advance(force);
       } 
 
@@ -185,7 +186,17 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
       return Optional.of(values[nextField++] = PartialToken.forField(this, field, nextTokenPosition));
     }
 
+    sortPriorities();
     return parent == null ? Optional.empty() : parent.advance(force);
+  }
+
+  private void sortPriorities() {
+    if (rotatable()) {
+      PartialToken first = values[0];
+      if (first.basePriority() < basePriority()) {
+        unrotate();
+      }
+    }
   }
 
   @Override
@@ -307,28 +318,38 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   }
 
   @Override
-  public boolean rotate() {
-    if (fields.length == 0) {
-      logger.debug("{}: Not rotating -- no fields");
+  public boolean rotatable() {
+    if (fields.length < 3) {
+      logger.debug("{}: Not rotatable -- not enough fields", this);
       return false;
     }
 
     if (!this.isPopulated()) {
-      logger.debug("{}: Not rotating -- not populated");
+      logger.debug("{}: Not rotatable -- not populated", this);
       return false;
     }
 
-    Field firstField = fields[0];
-    Class firstFieldType = firstField.getType();
-    if (!firstFieldType.isAssignableFrom(tokenType)) {
-      logger.debug("{}: Not rotating -- not possible");
+    Field field = fields[0];
+    Class fieldType = field.getType();
+    if (!fieldType.isAssignableFrom(tokenType)) {
+      logger.debug("{}: Not rotatable -- first field is not assignable from token type", this);
       return false;
     }
 
+    field = fields[fields.length - 1];
+    fieldType = field.getType();
+    if (!fieldType.isAssignableFrom(tokenType)) {
+      logger.debug("{}: Not rotatable -- last field is not assignable from token type", this);
+      return false;
+    }
+
+    return true;
+  }
+
+  @Override
+  public void rotate() {
     logger.info("Rotating token {}", this);
     RuleToken wrap = new RuleToken(this, tokenType, position);
-    wrap.populated = true;
-    populated = false;
     wrap.nextField = nextField;
     nextField = 1;
     PartialToken[] wrapValues = wrap.values;
@@ -338,8 +359,41 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     X wrapToken = (X) wrap.token;
     wrap.token = token;
     token = wrapToken;
+  }
 
-    return true;
+  @Override
+  public void unrotate() {
+    PartialToken firstToken = values[0];
+    PartialToken kiddo = firstToken;
+    if (kiddo instanceof VariantToken) {
+      kiddo = ((VariantToken)kiddo).resolvedAs();
+    }
+
+    Object childToken = kiddo.getToken();
+    Class childTokenType = kiddo.getTokenType();
+
+    PartialToken[] grandChildren = kiddo.getChildren();
+    values[0] = grandChildren[grandChildren.length - 1];
+    set(fields[0], values[0] == null ? null : values[0].getToken());
+    kiddo.setToken(token);
+    kiddo.setChildren(values);
+
+    values = grandChildren;
+    values[values.length - 1] = kiddo;
+    tokenType = null;
+    token = (X) childToken;
+    tokenType = (Class<X>) childTokenType;
+    set(fields[fields.length - 1], values[values.length - 1] == null ? null : values[values.length - 1].getToken());
+  }
+
+  @Override
+  public void setToken(X token) {
+    this.token = token;
+  }
+
+  @Override
+  public void setChildren(PartialToken[] children) {
+    this.values = children;
   }
 }
 

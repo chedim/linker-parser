@@ -102,11 +102,19 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   }
 
   @Override
-  public boolean rotate() {
+  public void rotate() {
     if (token != null) {
-      rotated = token.rotate();
+      token.rotate();
+      rotated = true;
     }
-    return rotated;
+  }
+
+  @Override
+  public void unrotate() {
+    if (token != null) {
+      token.unrotate();
+      rotated = true;
+    }
   }
 
   @Override
@@ -171,6 +179,10 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
     return tokenType;
   }
 
+  public PartialToken resolvedAs() {
+    return token;
+  }
+
   @Override
   public Optional<PartialToken> getParent() {
     return Optional.ofNullable(parent);
@@ -233,6 +245,16 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   @Override
   public int alternativesLeft() {
     return variants.length - currentVariant - 1;
+  }
+
+  @Override
+  public int basePriority() {
+    return token.basePriority();
+  }
+
+  @Override
+  public boolean rotatable() {
+    return token != null && token.rotatable();
   }
 }
 

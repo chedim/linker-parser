@@ -12,8 +12,11 @@ import org.powermock.api.mockito.PowerMockito;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.onkiup.linker.parser.annotation.CaptureLimit;
 import com.onkiup.linker.parser.Rule;
+import com.onkiup.linker.parser.TokenGrammar;
+import com.onkiup.linker.parser.annotation.CaptureLimit;
+import com.onkiup.linker.parser.annotation.CapturePattern;
+import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 
 import static org.junit.Assert.*;
 
@@ -30,7 +33,7 @@ public class RuleTokenTest {
   public void setup() {
     PowerMockito.mockStatic(PartialToken.class);
   }
-  
+
   @Test
   public void testAdvance() throws Exception {
     PartialToken child = Mockito.mock(PartialToken.class);

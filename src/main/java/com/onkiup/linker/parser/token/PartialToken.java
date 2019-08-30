@@ -10,6 +10,7 @@ import java.util.function.Predicate;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.TokenGrammar;
+import com.onkiup.linker.parser.annotation.AdjustPriority;
 
 public interface PartialToken<X> {
 
@@ -103,12 +104,56 @@ public interface PartialToken<X> {
     return 0;
   }
 
-  default boolean rotate() {
+  default void rotate() {
+  }
+
+  default boolean rotatable() {
     return false;
+  }
+
+  default void unrotate() {
+  }
+
+  default int basePriority() {
+    int result = 0;
+    Class<X> tokenType = getTokenType();
+    if (tokenType.isAnnotationPresent(AdjustPriority.class)) {
+      AdjustPriority adjustment = tokenType.getAnnotation(AdjustPriority.class);
+      result += adjustment.value();
+    }
+
+    for (PartialToken child : getChildren()) {
+      if (child != null && child.propagatePriority()) {
+        result += child.basePriority();
+      }
+    }
+
+    return result;
+  }
+
+  default boolean propagatePriority() {
+    Class<X> tokenType = getTokenType();
+    if (tokenType.isAnnotationPresent(AdjustPriority.class)) {
+      return tokenType.getAnnotation(AdjustPriority.class).propagate();
+    }
+
+    return false;
+  }
+
+  default PartialToken[] getChildren() {
+    return new PartialToken[0];
+  }
+
+  default void setChildren(PartialToken[] children) {
+    throw new RuntimeException("setChildren is unsupported for " + this);
   }
 
   default PartialToken replaceCurrentToken() {
     throw new RuntimeException("Unsupported");
+  }
+
+  default void setToken(X token) {
+    throw new RuntimeException("Unsupported");  
   }
 }
 
