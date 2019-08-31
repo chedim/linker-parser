@@ -142,7 +142,9 @@ public class TokenGrammar<X extends Rule> {
               continue;
             }
 
-            if (rootToken.alternativesLeft() > 0) {
+            int alternativesLeft = rootToken.alternativesLeft();
+            logger.debug("Alternatives left for {}: {}", rootToken, alternativesLeft);
+            if (alternativesLeft > 0) {
               logger.debug("Hit end but root token had alternatives left; backtracking the token and continuing with next variant");
               rootToken.pullback().ifPresent(b -> buffer.insert(0, b));
               token = rootToken;
@@ -155,6 +157,7 @@ public class TokenGrammar<X extends Rule> {
             }
             throw new SyntaxError("Unmatched trailing characters: " + buffer);
           } else {
+            rootToken.sortPriorities();
             return rootToken.getToken();
           }
         }

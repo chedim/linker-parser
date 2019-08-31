@@ -56,5 +56,13 @@ public interface Rule {
   default void reevaluate() {
     
   }
+
+  /**
+   * Invalidation callback
+   * called by arser every time it detaches the token from the tree
+   */
+  default void invalidate() {
+  
+  }
 }
 

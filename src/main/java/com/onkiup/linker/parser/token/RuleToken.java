@@ -12,9 +12,9 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.SyntaxError;
+import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 
 public class RuleToken<X extends Rule> implements PartialToken<X> {
   private static final Logger logger = LoggerFactory.getLogger(RuleToken.class);
@@ -41,7 +41,10 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
       throw new IllegalArgumentException("Failed to instantiate rule token " + type, e);
     }
 
-    fields = type.getDeclaredFields();
+    fields = Arrays.stream(type.getDeclaredFields())
+      .filter(field -> !Modifier.isTransient(field.getModifiers()))
+      .toArray(Field[]::new);
+
     values = new PartialToken[fields.length];
 
     if (parent != null) {
@@ -159,7 +162,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     }
 
     if (force && nextField < fields.length) {
-      logger.info("Force-advancing token {}", token);
+      logger.debug("Force-advancing token {}", token);
       // checking if all unpopulated fields are optional
       // and fast-forwarding to populate this token if possible
       do {
@@ -183,18 +186,30 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     if (nextField < fields.length && nextField > -1) {
       Field field = fields[nextField];
       logger.info("Populating field {}.{}", tokenType.getSimpleName(), field.getName());
-      return Optional.of(values[nextField++] = PartialToken.forField(this, field, nextTokenPosition));
+      return Optional.of(values[nextField++] = createChild(field, nextTokenPosition));
     }
 
+    logger.debug("Populated token {}", this);
     sortPriorities();
     return parent == null ? Optional.empty() : parent.advance(force);
   }
 
-  private void sortPriorities() {
+  protected PartialToken createChild(Field field, int position) {
+    return PartialToken.forField(this, field, position);
+  }
+
+  @Override
+  public void sortPriorities() {
     if (rotatable()) {
-      PartialToken first = values[0];
-      if (first.basePriority() < basePriority()) {
-        unrotate();
+      PartialToken child = values[0];
+      if (child != null && child.rotatable()) {
+        int myPriority = basePriority();
+        int childPriority = child.basePriority();
+        logger.debug("Verifying priority order for tokens; parent: {}({}) child: {}({})", this, myPriority, child, childPriority);
+        if (childPriority < myPriority) {
+          logger.debug("Fixing priority order between {} and {}", this, child);
+          unrotate();
+        }
       }
     }
   }
@@ -299,8 +314,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
 
   @Override
   public String toString() {
-    return "RuleToken(" + tokenType.getSimpleName() + 
-      (nextField > 0 ? "." + fields[nextField - 1].getName() : "") + ")@[" + position + " - " + (position + consumed()) + "]";
+    return "RuleToken(" + token + ")@[" + position + " - " + (position + consumed()) + "]";
   }
 
   @Override
@@ -349,6 +363,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   @Override
   public void rotate() {
     logger.info("Rotating token {}", this);
+    token.invalidate();
     RuleToken wrap = new RuleToken(this, tokenType, position);
     wrap.nextField = nextField;
     nextField = 1;
@@ -359,22 +374,27 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     X wrapToken = (X) wrap.token;
     wrap.token = token;
     token = wrapToken;
+    setChildren(values);
   }
 
   @Override
   public void unrotate() {
+    logger.debug("Un-rotating token {}", this);
     PartialToken firstToken = values[0];
     PartialToken kiddo = firstToken;
     if (kiddo instanceof VariantToken) {
       kiddo = ((VariantToken)kiddo).resolvedAs();
     }
 
-    Object childToken = kiddo.getToken();
+    Rule childToken = (Rule) kiddo.getToken();
     Class childTokenType = kiddo.getTokenType();
+
+    invalidate();
+    kiddo.invalidate();
 
     PartialToken[] grandChildren = kiddo.getChildren();
     values[0] = grandChildren[grandChildren.length - 1];
-    set(fields[0], values[0] == null ? null : values[0].getToken());
+    set(fields[0], values[0].getToken());
     kiddo.setToken(token);
     kiddo.setChildren(values);
 
@@ -383,7 +403,13 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     tokenType = null;
     token = (X) childToken;
     tokenType = (Class<X>) childTokenType;
-    set(fields[fields.length - 1], values[values.length - 1] == null ? null : values[values.length - 1].getToken());
+    setChildren(values);
+    set(fields[fields.length - 1], values[values.length - 1].getToken());
+  }
+
+  @Override
+  public PartialToken[] getChildren() {
+    return values;
   }
 
   @Override
@@ -394,6 +420,11 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   @Override
   public void setChildren(PartialToken[] children) {
     this.values = children;
+  }
+
+  @Override
+  public void invalidate() {
+    token.invalidate();
   }
 }
 

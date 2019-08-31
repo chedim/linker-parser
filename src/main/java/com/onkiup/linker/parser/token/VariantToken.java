@@ -10,12 +10,12 @@ import org.reflections.util.ConfigurationBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.onkiup.linker.parser.annotation.AdjustPriority;
-import com.onkiup.linker.parser.annotation.Alternatives;
-import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.TokenGrammar;
+import com.onkiup.linker.parser.annotation.AdjustPriority;
+import com.onkiup.linker.parser.annotation.Alternatives;
+import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 import com.onkiup.linker.parser.token.PartialToken;
 
 public class VariantToken<X extends Rule> implements PartialToken<X> {
@@ -24,6 +24,7 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   private static final Reflections reflections  = new Reflections(new ConfigurationBuilder()
         .setUrls(ClasspathHelper.forClassLoader(TokenGrammar.class.getClassLoader()))
         .setScanners(new SubTypesScanner(true))
+        .useParallelExecutor()
     );
 
   private Class<X> tokenType;
@@ -69,7 +70,11 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
             typePriorities.put(sub2, calculatePriority(sub2));
           }
 
-          return Integer.compare(typePriorities.get(sub1), typePriorities.get(sub2));
+          int result = Integer.compare(typePriorities.get(sub1), typePriorities.get(sub2));
+          if (result == 0) {
+            result = sub1.getName().compareTo(sub2.getName());
+          }
+          return result;
         })
         .toArray(Class[]::new);
     }
@@ -244,12 +249,37 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
 
   @Override
   public int alternativesLeft() {
-    return variants.length - currentVariant - 1;
+    return variants.length - currentVariant;
+  }
+
+  @Override
+  public void sortPriorities() {
+    token.sortPriorities();
+  }
+
+  @Override
+  public PartialToken[] getChildren() {
+    return new PartialToken[] {token};
+  }
+
+  @Override
+  public boolean propagatePriority() {
+    if (tokenType.isAnnotationPresent(AdjustPriority.class)) {
+      return tokenType.getAnnotation(AdjustPriority.class).propagate();
+    }
+    return token.propagatePriority();
   }
 
   @Override
   public int basePriority() {
-    return token.basePriority();
+    int result = 0;
+    if (tokenType.isAnnotationPresent(AdjustPriority.class)) {
+      result += tokenType.getAnnotation(AdjustPriority.class).value();
+    }
+    if (token.propagatePriority()) {
+      result += token.basePriority();
+    }
+    return result;
   }
 
   @Override

@@ -7,6 +7,7 @@ import org.junit.Test;
 
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.TokenGrammar;
+import com.onkiup.linker.parser.annotation.AdjustPriority;
 import com.onkiup.linker.parser.annotation.CaptureLimit;
 import com.onkiup.linker.parser.annotation.CapturePattern;
 import com.onkiup.linker.parser.annotation.IgnoreCharacters;
@@ -40,6 +41,8 @@ public class UnrotationTest {
     public static final String MARKER = "+";
   }
 
+
+  @AdjustPriority(value=10000, propagate=true)
   public static class UnrotationTestStarOperator implements UnrotationTestOperator {
     public static final String MARKER = "*";
   }
@@ -55,32 +58,42 @@ public class UnrotationTest {
   public void testUnrotation() throws Exception {
     TokenGrammar<UnrotationTestToken> grammar = TokenGrammar.forClass(UnrotationTestToken.class);
 
-    UnrotationTestToken result = grammar.parse("1 + 2 * 3");
+    UnrotationTestToken result = grammar.parse("1 + 2 * 3 + 4");
     assertNotNull(result);
     assertTrue(result instanceof UnrotationTestBinaryOperator);
     UnrotationTestBinaryOperator operator = (UnrotationTestBinaryOperator) result;
 
-    UnrotationTestToken token = operator.left;
+    UnrotationTestToken token = operator.right;
     assertNotNull(token);
-    assertTrue(token instanceof UnrotationTestNumber);
+    assertEquals(UnrotationTestNumber.class, token.getClass());
     UnrotationTestNumber number = (UnrotationTestNumber)token;
-    assertEquals("1", number.value);
+    assertEquals("4", number.value);
 
     assertTrue(operator.operator instanceof UnrotationTestPlusOperator);
     
-    token = operator.right;
+    token = operator.left;
     assertTrue(token instanceof UnrotationTestBinaryOperator);
     operator = (UnrotationTestBinaryOperator)token;
+    assertEquals(UnrotationTestPlusOperator.class, operator.operator.getClass());
     
     token = operator.left;
     assertTrue(token instanceof UnrotationTestNumber);
     number = (UnrotationTestNumber)token;
-    assertEquals("2", number.value);
-
-    assertTrue(operator.operator instanceof UnrotationTestStarOperator);
+    assertEquals("1", number.value);
 
     token = operator.right;
-    assertTrue(token instanceof UnrotationTestNumber);
+    assertTrue(token instanceof UnrotationTestBinaryOperator);
+    operator = (UnrotationTestBinaryOperator) token;
+
+    token = operator.left;
+    assertEquals(UnrotationTestNumber.class, token.getClass());
+    number = (UnrotationTestNumber)token;
+    assertEquals("2", number.value);
+
+    assertEquals(UnrotationTestStarOperator.class, operator.operator.getClass());
+
+    token = operator.right;
+    assertEquals(UnrotationTestNumber.class, token.getClass());
     number = (UnrotationTestNumber)token;
     assertEquals("3", number.value);
   }

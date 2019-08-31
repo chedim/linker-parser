@@ -140,6 +140,10 @@ public interface PartialToken<X> {
     return false;
   }
 
+  default void sortPriorities() {
+
+  }
+
   default PartialToken[] getChildren() {
     return new PartialToken[0];
   }
@@ -154,6 +158,10 @@ public interface PartialToken<X> {
 
   default void setToken(X token) {
     throw new RuntimeException("Unsupported");  
+  }
+
+  default void invalidate() {
+    
   }
 }
 
