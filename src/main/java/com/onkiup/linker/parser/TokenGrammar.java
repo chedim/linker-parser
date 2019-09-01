@@ -68,6 +68,7 @@ public class TokenGrammar<X extends Rule> {
   public X tokenize(String sourceName, Reader source) throws SyntaxError {
     PartialToken<X> rootToken = PartialToken.forClass(null, type, 0);
     PartialToken token = rootToken;
+    PartialToken previousToken;
     StringBuilder buffer = new StringBuilder();
     boolean hitEnd = false;
     int position = 0, line = 0, col = 0;
@@ -120,6 +121,8 @@ public class TokenGrammar<X extends Rule> {
             continue;
           }
         }
+        
+        previousToken = token;
 
         do {
           token = (PartialToken) token.advance(buffer.length() == 0).orElse(null);
