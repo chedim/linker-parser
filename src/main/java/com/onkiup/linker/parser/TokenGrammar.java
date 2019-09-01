@@ -56,7 +56,7 @@ public class TokenGrammar<X extends Rule> {
     }
 
     if (tail.length() > 0) {
-      throw new SyntaxError("Unmatched trailing symbols: '" + tail + "'");
+      throw new SyntaxError("Unmatched trailing symbols: '" + tail + "'", null, tail);
     }
     return result;
   }
@@ -68,7 +68,7 @@ public class TokenGrammar<X extends Rule> {
   public X tokenize(String sourceName, Reader source) throws SyntaxError {
     PartialToken<X> rootToken = PartialToken.forClass(null, type, 0);
     PartialToken token = rootToken;
-    PartialToken previousToken;
+    PartialToken previousToken = token;
     StringBuilder buffer = new StringBuilder();
     boolean hitEnd = false;
     int position = 0, line = 0, col = 0;
@@ -158,7 +158,7 @@ public class TokenGrammar<X extends Rule> {
             while (-1 != (nextChar = source.read())) {
               buffer.append((char)nextChar);
             }
-            throw new SyntaxError("Unmatched trailing characters: " + buffer);
+            throw new SyntaxError("Unmatched trailing characters", previousToken, buffer);
           } else {
             rootToken.sortPriorities();
             return rootToken.getToken();
@@ -166,12 +166,13 @@ public class TokenGrammar<X extends Rule> {
         }
       } while(buffer.length() > 0);
 
-      throw new SyntaxError("Unexpected end of input");
+      throw new SyntaxError("Unexpected end of input", previousToken, buffer);
     } catch (SyntaxError se) {
       throw new RuntimeException("Syntax error at line " + line + ", column " + col, se);
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
   }
+
 }
 

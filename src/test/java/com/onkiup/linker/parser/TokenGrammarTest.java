@@ -107,7 +107,7 @@ public class TokenGrammarTest {
       TestGrammarDefinition result = grammar.parse(new StringReader(":test; :another;"));
       Assert.fail();
     } catch (Exception e) {
-      // this is expected
+      e.printStackTrace();
     }
   }
 

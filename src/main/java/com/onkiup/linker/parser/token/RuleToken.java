@@ -154,7 +154,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
         return Optional.of(token);
       } else if (token != null && !isOptional(field)){
         if (parent == null) {
-          throw new SyntaxError("Expected " + field);
+          throw new SyntaxError("Expected " + field, this, null);
         } else {
           return parent == null ? Optional.empty() : parent.advance(force);
         }
@@ -360,10 +360,14 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     return true;
   }
 
+  public Field getCurrentField() {
+    return fields[nextField > 0 ? nextField - 1 : 0];
+  }
+
   @Override
   public void rotate() {
     logger.info("Rotating token {}", this);
-    token.invalidate();
+      token.invalidate();
     RuleToken wrap = new RuleToken(this, tokenType, position);
     wrap.nextField = nextField;
     nextField = 1;

@@ -24,7 +24,6 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   private static final Reflections reflections  = new Reflections(new ConfigurationBuilder()
         .setUrls(ClasspathHelper.forClassLoader(TokenGrammar.class.getClassLoader()))
         .setScanners(new SubTypesScanner(true))
-        .useParallelExecutor()
     );
 
   private Class<X> tokenType;
