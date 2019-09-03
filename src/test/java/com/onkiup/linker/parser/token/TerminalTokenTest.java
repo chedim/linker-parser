@@ -29,6 +29,8 @@ public class TerminalTokenTest {
     assertFalse(token.consume('s', false).isPresent());
     assertEquals("", token.consume('t', false).get().toString());
     assertEquals("X", token.consume('X', true).get().toString());
+
+    assertEquals("test", token.source().toString());
   }
 
   @Test

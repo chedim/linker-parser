@@ -1,6 +1,7 @@
 package com.onkiup.linker.parser;
 
 public class TerminalMatcher implements TokenMatcher {
+  
   private final String pattern; 
   private final int patternLen;
 

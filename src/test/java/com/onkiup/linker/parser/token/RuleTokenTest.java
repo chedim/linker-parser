@@ -15,6 +15,7 @@ import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.TokenGrammar;
 import com.onkiup.linker.parser.annotation.CaptureLimit;
@@ -35,14 +36,17 @@ public class RuleTokenTest {
   public void testAdvance() throws Exception {
     PartialToken child = Mockito.mock(PartialToken.class);
     Mockito.when(child.isPopulated()).thenReturn(true);
-    PowerMockito.when(PartialToken.forField(Mockito.any(), Mockito.any(), Mockito.anyInt())).thenReturn(child);
-    RuleToken token = new RuleToken(null, TestRule.class, 0);
+    Mockito.when(child.source()).thenReturn(new StringBuilder("123"));
+    PowerMockito.when(PartialToken.forField(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(child);
+    RuleToken token = new RuleToken(null, TestRule.class, ParserLocation.ZERO);
 
     assertSame(child, token.advance(false).get());
     assertSame(child, token.advance(false).get());
     assertFalse(token.advance(false).isPresent());
     PowerMockito.verifyStatic(PartialToken.class, Mockito.times(2));
-    PartialToken.forField(Mockito.eq(token), Mockito.any(Field.class), Mockito.anyInt());
+    PartialToken.forField(Mockito.eq(token), Mockito.any(Field.class), Mockito.any());
+
+    assertEquals("123123", token.source().toString());
   }
 
 //  @Test
@@ -50,11 +54,11 @@ public class RuleTokenTest {
    PartialToken child = Mockito.mock(PartialToken.class);
    Mockito.when(child.isPopulated()).thenReturn(true);
    Mockito.when(child.pullback()).thenReturn(Optional.of(new StringBuilder("a")));
-   PowerMockito.when(PartialToken.forField(Mockito.any(), Mockito.any(), Mockito.anyInt())).thenReturn(child);
+   PowerMockito.when(PartialToken.forField(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(child);
    PartialToken parent = Mockito.mock(PartialToken.class);
    Mockito.when(parent.pushback(false)).thenReturn(Optional.of(new StringBuilder("aa")));
 
-   RuleToken token = new RuleToken(parent, TestRule.class, 0);
+   RuleToken token = new RuleToken(parent, TestRule.class, ParserLocation.ZERO);
    token.advance(false);
    token.advance(false);
 

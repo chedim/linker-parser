@@ -3,7 +3,10 @@ package com.onkiup.linker.parser;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.onkiup.linker.parser.token.CollectionToken;
 import com.onkiup.linker.parser.token.PartialToken;
+import com.onkiup.linker.parser.token.RuleToken;
+import com.onkiup.linker.parser.token.VariantToken;
 
 // in 0.4:
 // - changed Metadata to hold PartialTokens instead of ParserLocations
@@ -22,7 +25,7 @@ public interface Rule {
       return Optional.ofNullable(metadata.get(rule));
     }
 
-    static void metadata(Rule rule, PartialToken token) {
+    public static void metadata(Rule rule, PartialToken token) {
       metadata.put(rule, token);
     }
 
@@ -35,9 +38,15 @@ public interface Rule {
    * @returns parent token or null if this token is root token
    */
   default <R extends Rule> Optional<R> parent() {
-    return Metadata.metadata(this)
-      .flatMap(PartialToken::getParent)
-      .map(parent -> (R) ((PartialToken)parent).getToken());
+    PartialToken meta = Metadata.metadata(this).get();
+    do {
+      meta = (PartialToken) meta.getParent().orElse(null);
+    } while (meta != null && !(meta instanceof RuleToken));
+
+    if (meta != null) {
+      return Optional.of((R) meta.getToken());
+    }
+    return Optional.empty();
   }
 
   /**
@@ -47,6 +56,10 @@ public interface Rule {
     return Metadata.metadata(this)
       .map(PartialToken::isPopulated)
       .orElse(false);
+  }
+
+  default PartialToken metadata() {
+    return Metadata.metadata(this).get();
   }
 
   /**

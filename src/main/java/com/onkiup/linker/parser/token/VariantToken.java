@@ -10,6 +10,7 @@ import org.reflections.util.ConfigurationBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.TokenGrammar;
@@ -17,6 +18,7 @@ import com.onkiup.linker.parser.annotation.AdjustPriority;
 import com.onkiup.linker.parser.annotation.Alternatives;
 import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 import com.onkiup.linker.parser.token.PartialToken;
+import com.onkiup.linker.parser.util.ParserError;
 
 public class VariantToken<X extends Rule> implements PartialToken<X> {
   private static final Logger logger = LoggerFactory.getLogger(VariantToken.class);
@@ -28,17 +30,18 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
 
   private Class<X> tokenType;
   private Class<? extends X>[] variants;
+  private PartialToken<? extends X> bestShot;
   private int currentVariant;
   private PartialToken<? extends X> token;
   private String ignoreCharacters = "";
   private PartialToken<? extends Rule> parent;
-  private final int position;
   private boolean rotated = false;
+  private ParserLocation location;
 
-  public VariantToken(PartialToken parent, Class<X> tokenType, int position) {
+  public VariantToken(PartialToken parent, Class<X> tokenType, ParserLocation location) {
     this.tokenType = tokenType;
     this.parent = parent;
-    this.position = position;
+    this.location = location;
     if (TokenGrammar.isConcrete(tokenType)) {
       throw new IllegalArgumentException("Variant token cannot handle concrete type " + tokenType);
     }
@@ -89,20 +92,22 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
 
   @Override
   public Optional<StringBuilder> pushback(boolean force) {
-    PartialToken<? extends X> oldToken = token;
-    token = null;
+    StringBuilder result = null;
+    if (bestShot == null || token != null && bestShot.end().position() < token.end().position()) {
+      bestShot = token;
+    }
     if (currentVariant < variants.length) {
       logger.debug("Not pushing parent back: not all options exhausted for {}", this);
-      return oldToken.pullback();
+      result = (StringBuilder) token.pullback().orElse(null);
+      token = null;
+    } else {
+      logger.debug("Exhausted all variants, rollbacking parent token");
+      result = (StringBuilder) getParent()
+        .flatMap(p -> p.pushback(false))
+        .orElse(null);
     }
 
-    logger.debug("Exhausted all variants, rollbacking parent token");
-    StringBuilder result = (StringBuilder) getParent()
-      .flatMap(p -> p.pushback(false))
-      .orElseGet(StringBuilder::new);
-    oldToken.pullback().ifPresent(result::append);
-     
-    return Optional.of(result);
+    return Optional.ofNullable(result);
   }
 
   @Override
@@ -126,8 +131,9 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
     if (isPopulated()) {
       logger.info("Pulling back resolved token {}", token);
       PartialToken discarded = token;
+      StringBuilder result = (StringBuilder) discarded.pullback().orElse(null);
       token = null;
-      return discarded.pullback();
+      return Optional.ofNullable(result);
     }
     return Optional.empty();
   }
@@ -139,6 +145,7 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
       rotated = false;
       return Optional.of(token);
     } else if (isPopulated()) {
+      bestShot = token;
       logger.info("Populated {} as {}; Advancing to parent", this, token);
       return parent == null ? Optional.empty() : parent.advance(forcePopulate);
     } else if (currentVariant < variants.length) {
@@ -146,6 +153,7 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
       PartialToken leftRecursion = null;
       while (currentVariant < variants.length) {
         final Class candidate = variants[currentVariant++];
+        final int position = position();
         leftRecursion = findInTree(token -> token.position() == position && token.getTokenType() == candidate).orElse(null);
         if (leftRecursion != null) {
           logger.debug("Left recursion detected on variant " + candidate.getSimpleName());
@@ -156,7 +164,7 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
       }
 
       if (leftRecursion == null) {
-        token = PartialToken.forClass(this, variant, position);
+        token = PartialToken.forClass(this, variant, location);
         logger.info("Advancing to variant {}/{}: {}", currentVariant, variants.length, token);
         return token.advance(false);
       }
@@ -220,7 +228,10 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
 
   @Override
   public String toString() {
-    return new StringBuilder("VariantToken[")
+    int position = position();
+    StringBuilder result = new StringBuilder("'")
+      .append(tail(10).replaceAll("\n", "\\n"))
+      .append("' <-- VariantToken[")
       .append(currentVariant)
       .append("/")
       .append(variants.length)
@@ -229,13 +240,13 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
       .append(position)
       .append(" - ")
       .append(position + consumed())
-      .append("]")
-      .toString();
-  }
+      .append("]");
 
-  @Override
-  public int position() {
-    return position;
+    if (currentVariant > 0) {
+      result.append(": ").append(variants[currentVariant - 1].getSimpleName());
+    }
+
+    return result.toString();
   }
 
   @Override
@@ -284,6 +295,45 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   @Override
   public boolean rotatable() {
     return token != null && token.rotatable();
+  }
+
+  @Override
+  public ParserLocation end() {
+    if (token == null) {
+      return location;
+    }
+    return token.end();
+  }
+
+  @Override
+  public ParserLocation location() {
+    if (token != null) {
+      return token.location();
+    }
+    return location;
+  }
+
+  @Override
+  public StringBuilder source() {
+    StringBuilder result = new StringBuilder();
+    if (token != null) {
+      result.append(token.source());
+    }
+
+    return result;
+  }
+
+  @Override
+  public PartialToken expected() {
+    if (bestShot != null) {
+      return bestShot.expected();
+    }
+    return this;
+  }
+  
+  @Override
+  public String tag() {
+    return "? extends " + tokenType.getSimpleName();
   }
 }
 

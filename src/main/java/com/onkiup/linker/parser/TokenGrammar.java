@@ -4,6 +4,7 @@ import java.io.Reader;
 import java.io.StringReader;
 import java.lang.reflect.Modifier;
 import java.util.Collection;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -36,15 +37,18 @@ public class TokenGrammar<X extends Rule> {
   }
 
   public X parse(String source) throws SyntaxError {
-    return parse(new StringReader(source));
+    return parse("unknown", source);
+  }
+  public X parse(String name, String source) throws SyntaxError {
+    return parse(name, new StringReader(source));
   }
 
   public X parse(Reader source) throws SyntaxError {
-    return parse(source, null);
+    return parse("unknown", source);
   }
 
-  public X parse(Reader source, Object context)  throws SyntaxError {
-    X result = tokenize(source);
+  public X parse(String name, Reader source)  throws SyntaxError {
+    X result = tokenize(name, source);
     StringBuilder tail = new StringBuilder();
     try {
       int nextChar;
@@ -62,18 +66,22 @@ public class TokenGrammar<X extends Rule> {
   }
 
   public X tokenize(Reader source) throws SyntaxError {
-    return tokenize("", source);
+    return tokenize("unknown", source);
   }
 
   public X tokenize(String sourceName, Reader source) throws SyntaxError {
-    PartialToken<X> rootToken = PartialToken.forClass(null, type, 0);
+    PartialToken<X> rootToken = PartialToken.forClass(null, type, new ParserLocation(sourceName, 0, 0, 0));
     PartialToken token = rootToken;
-    PartialToken previousToken = token;
+    PartialToken lastToken = token;
     StringBuilder buffer = new StringBuilder();
     boolean hitEnd = false;
-    int position = 0, line = 0, col = 0;
+    int line = 0, col = 0;
+    AtomicInteger position = new AtomicInteger(0); 
     try {
       do {
+        logger.debug("----------------------------------------------------------------------------------------");
+        logger.debug("BUFFER = '{}'", buffer);
+        logger.debug("POSITION = {}", position.get());
         logger.debug("----------------------------------------------------------------------------------------");
         if (logger.isDebugEnabled()) {
           Collection<PartialToken> path = token.getPath();
@@ -90,7 +98,7 @@ public class TokenGrammar<X extends Rule> {
           if (!hitEnd) {
             buffer.append((char) nextChar);
 
-            position++;
+            position.getAndIncrement();
             col++;
 
             if (nextChar == '\n') {
@@ -106,13 +114,15 @@ public class TokenGrammar<X extends Rule> {
           boolean consumed = (Boolean)consumingToken.consume(buffer.charAt(0), buffer.length() == 1)
             .map(Object::toString)
             .map(returned -> {
-              logger.debug("Token {} returned characters: {}", consumingToken, returned);
               buffer.replace(0, 1, (String) returned);
+              position.addAndGet(1 - ((String)returned).length());
+              logger.debug("Token {} returned characters: '{}'; buffer = '{}'", consumingToken, returned, buffer);
               return false;
             })
             .orElseGet(() -> {
               logger.debug("Discarding consumed by token {} character '{}'", consumingToken, buffer.charAt(0));
               buffer.delete(0, 1);
+              position.incrementAndGet();
               return true;
             });
 
@@ -121,8 +131,8 @@ public class TokenGrammar<X extends Rule> {
             continue;
           }
         }
-        
-        previousToken = token;
+
+        lastToken = token;
 
         do {
           token = (PartialToken) token.advance(buffer.length() == 0).orElse(null);
@@ -158,7 +168,7 @@ public class TokenGrammar<X extends Rule> {
             while (-1 != (nextChar = source.read())) {
               buffer.append((char)nextChar);
             }
-            throw new SyntaxError("Unmatched trailing characters", previousToken, buffer);
+            throw new SyntaxError("Unmatched trailing characters", rootToken, buffer);
           } else {
             rootToken.sortPriorities();
             return rootToken.getToken();
@@ -166,7 +176,7 @@ public class TokenGrammar<X extends Rule> {
         }
       } while(buffer.length() > 0);
 
-      throw new SyntaxError("Unexpected end of input", previousToken, buffer);
+      throw new SyntaxError("Unexpected end of input", rootToken, buffer);
     } catch (SyntaxError se) {
       throw new RuntimeException("Syntax error at line " + line + ", column " + col, se);
     } catch (Exception e) {

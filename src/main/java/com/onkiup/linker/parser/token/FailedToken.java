@@ -2,6 +2,8 @@ package com.onkiup.linker.parser.token;
 
 import java.util.Optional;
 
+import com.onkiup.linker.parser.ParserLocation;
+
 /**
  * A special token used to return characters from force-failed tokens
  */
@@ -9,12 +11,29 @@ public class FailedToken implements PartialToken, ConsumingToken {
 
   private PartialToken parent;
   private StringBuilder data;
-  private int position;
+  private ParserLocation location;
+  private ParserLocation end;
 
-  public FailedToken(PartialToken parent, StringBuilder data, int position) {
+  public FailedToken(PartialToken parent, StringBuilder data, ParserLocation location) {
     this.parent = parent;
+    this.location = location;
     this.data = data;
-    this.position = position;
+    int line = location.line(), column = location.column();
+    for(int i = 0; i < data.length(); i++) {
+      char chr = data.charAt(i);
+      if(chr == '\n') {
+        line++;
+        column = 0;
+      } else {
+        column++;
+      }
+    }
+    this.end = new ParserLocation(
+        location.name(),
+        location.position() + data.length(),
+        location.line() + line,
+        column
+    );
   }
 
   @Override
@@ -23,8 +42,13 @@ public class FailedToken implements PartialToken, ConsumingToken {
   }
 
   @Override
-  public int position() {
-    return position;
+  public ParserLocation location() {
+    return location;
+  }
+
+  @Override
+  public ParserLocation end() {
+    return end;
   }
 
   @Override 
@@ -61,6 +85,16 @@ public class FailedToken implements PartialToken, ConsumingToken {
   @Override 
   public Optional<StringBuilder> consume(char character, boolean last) {
     return Optional.of(new StringBuilder().append(data).append(character));
+  }
+  
+  @Override
+  public StringBuilder source() {
+    return new StringBuilder(data.toString());
+  }
+
+  @Override
+  public PartialToken expected() {
+    return parent.expected();
   }
 }
 

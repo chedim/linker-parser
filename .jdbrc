@@ -1,3 +1,0 @@
-use src/main/java:src/test/java
-stop at com.onkiup.linker.parser.SyntaxError:25
-run

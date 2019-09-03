@@ -6,15 +6,16 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
-import java.util.Objects;
 import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.annotation.IgnoreCharacters;
+import com.onkiup.linker.parser.annotation.OptionalToken;
 
 public class RuleToken<X extends Rule> implements PartialToken<X> {
   private static final Logger logger = LoggerFactory.getLogger(RuleToken.class);
@@ -25,15 +26,14 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   private PartialToken<? extends Rule> parent;
   private String ignoreCharacters = ""; 
   private int nextField;
-  private final int position;
-  private int nextTokenPosition;
   private boolean rotated = false;
+  private final ParserLocation location;
+  private ParserLocation lastTokenEnd;
 
-  public RuleToken(PartialToken<? extends Rule> parent, Class<X> type, int position) {
+  public RuleToken(PartialToken<? extends Rule> parent, Class<X> type, ParserLocation location) {
     this.tokenType = type;
     this.parent = parent;
-    this.position = position;
-    this.nextTokenPosition = position;
+    this.location = location;
 
     try {
       this.token = type.newInstance();
@@ -66,7 +66,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     StringBuilder result = new StringBuilder();
     Field lastField = fields[nextField - 1];
 
-    if (force || !isOptional(lastField)) {
+    if (force || !isOptional(nextField - 1)) {
       int backField;
       for (backField = nextField - 1; backField > -1; backField--) {
         PartialToken token = values[backField];
@@ -92,8 +92,10 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
         getParent()
           .flatMap(p -> p.pushback(false))
           .ifPresent(b -> result.append(b));
+        lastTokenEnd = location;
         return Optional.of(result);
       }
+
 
       for (int i = backField + 1; i < nextField - 1; i++) {
         Field field = fields[i];
@@ -105,6 +107,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
       }
 
       nextField = backField + 1;
+      lastTokenEnd = values[backField].end();
 
       return Optional.of(result);
     } else {
@@ -129,6 +132,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
         result.append(b);
       });
     }
+
     return Optional.of(result);
   }
 
@@ -148,11 +152,11 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
         return Optional.of(token);
       } if (token != null && token.isPopulated()) {
         set(field, token.getToken());
-        nextTokenPosition += token.consumed();
+        lastTokenEnd = token.end();
       } else if (token != null && token.alternativesLeft() > 0) {
         logger.debug("last token still has some alternatives, not advancing");
         return Optional.of(token);
-      } else if (token != null && !isOptional(field)){
+      } else if (token != null && !isOptional(currentField)){
         if (parent == null) {
           throw new SyntaxError("Expected " + field, this, null);
         } else {
@@ -167,7 +171,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
       // and fast-forwarding to populate this token if possible
       do {
         Field field = fields[nextField];
-        if (!field.isAnnotationPresent(com.onkiup.linker.parser.annotation.Optional.class)) {
+        if (!isOptional(nextField)) {
           break;
         }
         set(field, null);
@@ -176,26 +180,28 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
       if (isPopulated()) {
         logger.debug("Force-populated token {}", this);
         sortPriorities();
+        Rule.Metadata.metadata(token, this);
         return parent == null ? Optional.empty() : parent.advance(force);
       } 
 
       logger.debug("{}: Force-populate failed", this);
-      return pushback(false).map(b -> new FailedToken(parent, b, position));
+      return pushback(false).map(b -> new FailedToken(parent, b, location()));
     }
 
     if (nextField < fields.length && nextField > -1) {
       Field field = fields[nextField];
       logger.info("Populating field {}.{}", tokenType.getSimpleName(), field.getName());
-      return Optional.of(values[nextField++] = createChild(field, nextTokenPosition));
+      return Optional.of(values[nextField++] = createChild(field, end()));
     }
 
     logger.debug("Populated token {}", this);
     sortPriorities();
+    Rule.Metadata.metadata(token, this);
     return parent == null ? Optional.empty() : parent.advance(force);
   }
 
-  protected PartialToken createChild(Field field, int position) {
-    return PartialToken.forField(this, field, position);
+  protected PartialToken createChild(Field field, ParserLocation location) {
+    return PartialToken.forField(this, field, location);
   }
 
   @Override
@@ -237,7 +243,8 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
         return true;
       }
       Field field = fields[i];
-      if (!isOptional(field)) {
+      if (!isOptional(i)) {
+        logger.debug("Not populated -- field {}.{} is not optional", tokenType.getSimpleName(), field.getName());
         return false;
       }
     }
@@ -267,8 +274,10 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     }
   }
 
-  private boolean isOptional(Field field) throws SyntaxError {
-    return field.isAnnotationPresent(com.onkiup.linker.parser.annotation.Optional.class);
+  private boolean isOptional(int position) throws SyntaxError {
+    Field field = fields[position];
+    PartialToken token = values[position];
+    return field.isAnnotationPresent(OptionalToken.class) || (token instanceof TerminalToken && ((TerminalToken)token).skipped());
   }
 
   protected <T> T convert(Class<T> into, Object what) { 
@@ -314,21 +323,51 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
 
   @Override
   public String toString() {
-    return "RuleToken(" + token + ")@[" + position + " - " + (position + consumed()) + "]";
+    int position = position();
+    StringBuilder result = new StringBuilder("'")
+      .append(tail(10).replaceAll("\n", "\\n"))
+      .append("' <-- RuleToken(")
+      .append(tokenType.getSimpleName())
+      .append(")@[")
+      .append(position)
+      .append(" - ")
+      .append(position + consumed())
+      .append("]");
+
+
+    if (nextField > 0) {
+      result.append(": ")
+        .append(fields[nextField - 1].getName());
+    }
+
+    result.append("\n");
+
+    for (int i = nextField - 2; i > -1; i--) {
+      result.append("\t")
+        .append(String.format("%15s", fields[i].getName()))
+        .append(": ")
+        .append(values[i] == null ? "null" : values[i].toString().replaceAll("\n", "\n\t\t"))
+        .append("\n");
+    }
+
+    return result.toString();
   }
 
   @Override
-  public int position() {
-    return position;
+  public ParserLocation location() {
+    if (values.length > 0) {
+      for (int i = 0; i < values.length; i++) {
+        if (values[i] != null && values[i].isPopulated()) {
+          return values[i].location();
+        }
+      }
+    }
+    return location;
   }
 
   @Override
   public int consumed() {
-    int consumedByLastToken = 0;
-    if (nextField > 0 && values[nextField - 1] != null) {
-      consumedByLastToken = values[nextField - 1].consumed();
-    }
-    return nextTokenPosition - position + consumedByLastToken;
+    return lastTokenEnd == null ? 0 : lastTokenEnd.position() - position();
   }
 
   @Override
@@ -368,7 +407,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   public void rotate() {
     logger.info("Rotating token {}", this);
       token.invalidate();
-    RuleToken wrap = new RuleToken(this, tokenType, position);
+    RuleToken wrap = new RuleToken(this, tokenType, location);
     wrap.nextField = nextField;
     nextField = 1;
     PartialToken[] wrapValues = wrap.values;
@@ -429,6 +468,39 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   @Override
   public void invalidate() {
     token.invalidate();
+  }
+
+  @Override
+  public ParserLocation end() {
+    return lastTokenEnd == null ? location : lastTokenEnd;
+  }
+
+  @Override
+  public StringBuilder source() {
+    StringBuilder result = new StringBuilder();
+    for (int i = 0; i < values.length; i++) {
+      if (values[i] != null) {
+        result.append(values[i].source());
+      }
+    }
+    return result;
+  }
+
+  @Override
+  public PartialToken expected() {
+
+    for (int field = nextField; field > 0; field--) {
+      if (field < fields.length && !isOptional(field) && values[field] != null) {
+        return values[field].expected();
+      }
+    }
+
+    return this;
+  }
+
+  @Override
+  public String tag() {
+    return tokenType.getSimpleName();
   }
 }
 
