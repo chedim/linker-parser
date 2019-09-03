@@ -31,6 +31,9 @@ Other examples are available in [Linker-Sail](https://github.com/dmitriic/lisa) 
 - [BinaryOperatorStatement](https://github.com/dmitriic/lisa/blob/master/src/main/java/com/onkiup/linker/sail/operator/BinaryOperatorStatement.java)
 - [RuleInvocation](https://github.com/dmitriic/lisa/blob/master/src/main/java/com/onkiup/linker/sail/grammar/RuleInvocation.java)
 
+Here's also a screencast of Linker-parser based SAIL REPL interaction:
+[![asciicast](https://asciinema.org/a/6tIA9Rbu0OTyhGjaijSOGeRoM.svg)](https://asciinema.org/a/6tIA9Rbu0OTyhGjaijSOGeRoM)
+
 ## Creating a parser
 Invoke `TokenGrammar.forClass(Class<? extends Rule> rule)` with your root token class as parameter.
 
