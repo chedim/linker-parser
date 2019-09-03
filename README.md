@@ -77,6 +77,21 @@ Rotations can also be attempted on root tokens upon parser unexpectedly hitting 
 
 Token rotations are always performed before testing if the token has any alternatives left and successful rotations prevent parser from advancing to the next possible alternative (as rotated token is an alternative on itself).
 
+## Token post-rotation
+If populated token is deemed rotatable and it has a compatible child token with *lower* priority, Linker-parser will rotate parent token so that token with *higher* priority becomes a child of a token with *lower* priority. In other words, whenever parser detects a rotatable combination of populated tokens, it makes sure that token priorities always increase from AST root to AST leaves. This ensures that mathematical expressions like `1 + 2 * 3` are parsed as:
+```
+1 + 2 * 3
+    ^^^^^ leaf (2 * 3)
+^^^^^^^ root (1 + leaf)
+```
+and not as:
+```
+1 + 2 * 3
+^^^^^ leaf (1 + 2)
+  ^^^^^^^ root (leaf * 3)
+```
+This allows based on Linker-parser evaluators calculate results of mathematical expressions without having to re-arrange parsed tokens in proper order.
+
 ## Support
 For any questions or issues -- please either open a github issue in this project or tweet directly at [chedim](http://twitter.com/chedim) and I will do my best to help you. It would help me a lot if you include definitions for your failing rules in the message ;-)
 
