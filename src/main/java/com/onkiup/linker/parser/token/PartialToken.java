@@ -1,19 +1,30 @@
 package com.onkiup.linker.parser.token;
 
 import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.TokenGrammar;
+import com.onkiup.linker.parser.annotation.AdjustPriority;
+import com.onkiup.linker.parser.util.ParserError;
 
 public interface PartialToken<X> {
 
-  static PartialToken forField(PartialToken parent, Field field, int position) {
+  static PartialToken forField(PartialToken parent, Field field, ParserLocation position) {
+
+    if (position == null) {
+      throw new ParserError("Child token position cannot be null", parent);
+    }
+
     Class fieldType = field.getType();
     if (fieldType.isArray()) {
       return new CollectionToken(parent, field, position);
@@ -29,7 +40,10 @@ public interface PartialToken<X> {
     throw new IllegalArgumentException("Unsupported field type: " + fieldType);
   }
 
-  static PartialToken forClass(PartialToken parent, Class<? extends Rule> type, int position) {
+  static PartialToken forClass(PartialToken parent, Class<? extends Rule> type, ParserLocation position) {
+    if (position == null) {
+      throw new ParserError("Child token location cannot be null", parent);
+    }
     if (TokenGrammar.isConcrete(type)) {
       return new RuleToken(parent, type, position);
     } else {
@@ -95,7 +109,15 @@ public interface PartialToken<X> {
     return "";
   }
 
-  int position();
+  ParserLocation location();
+
+  default int position() {
+    ParserLocation location = location();
+    if (location == null) {
+      return 0;
+    }
+    return location.position();
+  }
 
   int consumed();
 
@@ -103,12 +125,100 @@ public interface PartialToken<X> {
     return 0;
   }
 
-  default boolean rotate() {
+  default void rotate() {
+  }
+
+  default boolean rotatable() {
     return false;
+  }
+
+  default void unrotate() {
+  }
+
+  default int basePriority() {
+    int result = 0;
+    Class<X> tokenType = getTokenType();
+    if (tokenType.isAnnotationPresent(AdjustPriority.class)) {
+      AdjustPriority adjustment = tokenType.getAnnotation(AdjustPriority.class);
+      result += adjustment.value();
+    }
+
+    for (PartialToken child : getChildren()) {
+      if (child != null && child.propagatePriority()) {
+        result += child.basePriority();
+      }
+    }
+
+    return result;
+  }
+
+  default boolean propagatePriority() {
+    Class<X> tokenType = getTokenType();
+    if (tokenType.isAnnotationPresent(AdjustPriority.class)) {
+      return tokenType.getAnnotation(AdjustPriority.class).propagate();
+    }
+
+    return false;
+  }
+
+  default void sortPriorities() {
+
+  }
+
+  default PartialToken[] getChildren() {
+    return new PartialToken[0];
+  }
+
+  default void setChildren(PartialToken[] children) {
+    throw new RuntimeException("setChildren is unsupported for " + this);
   }
 
   default PartialToken replaceCurrentToken() {
     throw new RuntimeException("Unsupported");
   }
+
+  default void setToken(X token) {
+    throw new RuntimeException("Unsupported");  
+  }
+
+  default void invalidate() {
+    
+  }
+
+  ParserLocation end();
+
+  StringBuilder source();
+
+  default String tag() {
+    return "UNKNOWN";
+  }
+
+  default void visit(Consumer<PartialToken> visitor) {
+    Arrays.stream(getChildren())
+      .filter(Objects::nonNull)
+      .forEach(child -> child.visit(visitor));
+    visitor.accept(this);
+  }
+
+  default PartialToken root() {
+    PartialToken current = this;
+    while(true) {
+      PartialToken parent = (PartialToken) current.getParent().orElse(null);
+      if (parent == null) {
+        return current;
+      }
+      current = parent;
+    }
+  }
+
+  default String tail(int length) {
+    String source = source().toString();
+    if (source.length() > length) {
+      source = source.substring(source.length() - length);
+    }
+    return String.format("%" + length + "s", source);
+  }
+
+  PartialToken expected();
 }
 

@@ -11,6 +11,7 @@ import org.powermock.api.mockito.PowerMockito;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
+import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 
 import static org.junit.Assert.*;
@@ -42,9 +43,10 @@ public class VariantTokenTest {
     PartialToken child = Mockito.mock(PartialToken.class);
     Mockito.when(child.isPopulated()).thenReturn(false);
     Mockito.when(child.advance(Mockito.anyBoolean())).thenReturn(Optional.of(target));
-    PowerMockito.when(PartialToken.forClass(Mockito.any(), Mockito.any(), Mockito.anyInt())).thenReturn(child);
+    Mockito.when(child.source()).thenReturn(new StringBuilder("123"));
+    PowerMockito.when(PartialToken.forClass(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(child);
 
-    VariantToken token = new VariantToken(null, Variant.class, 0);
+    VariantToken token = new VariantToken(null, Variant.class, ParserLocation.ZERO);
 
     assertSame(target, token.advance(false).get());
     assertSame(target, token.advance(false).get());
@@ -52,7 +54,10 @@ public class VariantTokenTest {
     assertTrue(token.isPopulated());
 
     PowerMockito.verifyStatic(PartialToken.class, Mockito.times(1));
-    PartialToken.forClass(Mockito.eq(token), Mockito.eq(VariantA.class), Mockito.anyInt());
-    PartialToken.forClass(Mockito.eq(token), Mockito.eq(VariantB.class), Mockito.anyInt());
+    PartialToken.forClass(Mockito.eq(token), Mockito.eq(VariantA.class), Mockito.any());
+    PartialToken.forClass(Mockito.eq(token), Mockito.eq(VariantB.class), Mockito.any());
+
+    assertEquals("123", token.source().toString());
   }
+
 }

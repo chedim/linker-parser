@@ -7,9 +7,11 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.onkiup.linker.parser.annotation.CaptureLimit;
+import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.SyntaxError;
+import com.onkiup.linker.parser.annotation.CaptureLimit;
+import com.onkiup.linker.parser.util.ParserError;
 
 public class CollectionToken<X> implements PartialToken<X> {
   private static final Logger logger = LoggerFactory.getLogger(CollectionToken.class);
@@ -22,14 +24,14 @@ public class CollectionToken<X> implements PartialToken<X> {
   private PartialToken current;
   private CaptureLimit captureLimit;
   private boolean populated = false;
-  private final int position;
-  private int nextTokenPosition;
+  private final ParserLocation location;
+  private ParserLocation lastTokenEnd;
 
-  public CollectionToken(PartialToken<? extends Rule> parent, Field field, int position) {
+  public CollectionToken(PartialToken<? extends Rule> parent, Field field, ParserLocation location) {
     this.parent = parent;
     this.field = field;
-    this.position = position;
-    this.nextTokenPosition = position;
+    this.location = location;
+    lastTokenEnd = location;
     this.fieldType = (Class<X>) field.getType(); 
     this.memberType = fieldType.getComponentType();
     if (field.isAnnotationPresent(CaptureLimit.class)) {
@@ -49,7 +51,6 @@ public class CollectionToken<X> implements PartialToken<X> {
     logger.info("Pulling back failed (last) member {} and marking collection token as populated: {}", current, this);
     populated = true;
     PartialToken lastMember = current;
-    current = null;
     return lastMember.pullback();
   }
 
@@ -66,7 +67,7 @@ public class CollectionToken<X> implements PartialToken<X> {
 
   @Override
   public Optional<PartialToken> advance(boolean force) throws SyntaxError {
-    logger.info("Advancing {}", this);
+    logger.debug("Advancing {}", this);
     int size = children.size();
     if (current != null && !current.isPopulated()) {
       logger.debug("Last collection token failed");
@@ -76,7 +77,7 @@ public class CollectionToken<X> implements PartialToken<X> {
       }
     } else if (current != null) {
       children.add(current);
-      nextTokenPosition += current.consumed();
+      lastTokenEnd = current.end();
       populated = (captureLimit == null) ? false : ++size == captureLimit.max();
       logger.info("Appended token {} to {}; populated: {}", current, this, populated);
     }
@@ -89,7 +90,8 @@ public class CollectionToken<X> implements PartialToken<X> {
     if (populated) {
       return parent == null ? Optional.empty() : parent.advance(force);
     } else {
-      current = PartialToken.forClass(this, memberType, nextTokenPosition);
+      current = PartialToken.forClass(this, memberType, lastTokenEnd);
+      logger.debug("Advancing to next collection member: {}", current);
       return Optional.of(current);
     }
   }
@@ -134,17 +136,72 @@ public class CollectionToken<X> implements PartialToken<X> {
   }
 
   @Override
-  public int position() {
-    return position;
-  }
-
-  @Override
   public int consumed() {
-    return nextTokenPosition + (current == null ? 0 : current.consumed()) - position;
+    return lastTokenEnd == null ? 0 : lastTokenEnd.position() - position();
   }
 
   @Override
   public String toString() {
-    return "CollectionToken[" + children.size() + "]@[" + position + " - " + (position + consumed()) + "]";
+    StringBuilder result = new StringBuilder("'")
+      .append(tail(10).replaceAll("\n", "\\n"))
+      .append("' <-- Collection(")
+      .append(memberType.getSimpleName())
+      .append(")@[")
+      .append(location.position())
+      .append(" - ")
+      .append(end().position())
+      .append("]: ")
+      .append(children.size())
+      .append("\n");
+
+    for(int i = children.size() - 1; i > -1; i--) {
+      PartialToken child = children.get(i);
+      result.append("\t")
+        .append(String.format("%3d: ", i))
+        .append(child == null ? null : child.toString().replaceAll("\n",  "\n\t\t"))
+        .append("\n");
+    }
+
+    return result.toString();
+  }
+
+  @Override
+  public ParserLocation location() {
+    if (children.size() > 0) {
+      return children.get(0).location();
+    }
+    return location;
+  }
+
+  @Override
+  public ParserLocation end() {
+    return lastTokenEnd == null ? location : lastTokenEnd;
+  }
+
+  @Override
+  public StringBuilder source() {
+    StringBuilder result = new StringBuilder();
+    
+    for (int i = 0; i < children.size(); i++) {
+      result.append(children.get(i).source());
+    }
+    return result;
+  }
+
+  @Override
+  public PartialToken[] getChildren() {
+    PartialToken[] result = new PartialToken[children.size()];
+    return children.toArray(result);
+  }
+
+
+  @Override
+  public PartialToken expected() {
+    return current.expected();
+  }
+  
+  @Override
+  public String tag() {
+    return "Collection<" + memberType.getSimpleName() + ">";
   }
 }

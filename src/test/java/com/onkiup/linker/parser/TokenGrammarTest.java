@@ -7,9 +7,9 @@ import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
-import com.onkiup.linker.parser.annotation.CapturePattern;
 import com.onkiup.linker.parser.annotation.CaptureLimit;
-import com.onkiup.linker.parser.annotation.Optional;
+import com.onkiup.linker.parser.annotation.CapturePattern;
+import com.onkiup.linker.parser.annotation.OptionalToken;
 
 public class TokenGrammarTest {
 
@@ -27,7 +27,7 @@ public class TokenGrammarTest {
     private static final String marker = "//";
     @CapturePattern(pattern = "[^\\n]*")
     private String comment;
-    @Optional
+    @OptionalToken
     private static final String tail = "\n";
   }
 
@@ -57,7 +57,7 @@ public class TokenGrammarTest {
   // bug in < 0.3.4
   public static class TestGrammarWithOptionalLastField implements Rule {
     private static final String marker = ":";
-    @Optional
+    @OptionalToken
     @CapturePattern(pattern="[^\\s\\n]+")
     private String command;
   }
@@ -107,7 +107,7 @@ public class TokenGrammarTest {
       TestGrammarDefinition result = grammar.parse(new StringReader(":test; :another;"));
       Assert.fail();
     } catch (Exception e) {
-      // this is expected
+      e.printStackTrace();
     }
   }
 
