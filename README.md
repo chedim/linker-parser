@@ -81,6 +81,10 @@ Token rotations are always performed before testing if the token has any alterna
 For any questions or issues -- please either open a github issue in this project or tweet directly at [chedim](http://twitter.com/chedim) and I will do my best to help you. It would help me a lot if you include definitions for your failing rules in the message ;-)
 
 ## Version History
+* 0.7 
+  * Support for mathematical equations based on token priority; 
+  * Improved token position reporting
+
 * 0.6 - Major refactoring triggered by a design mistake in token rollback logic. 
   Known bug: this version may not report column/line position correctly
 * 0.5 - Added left-recursion avoidance logic
