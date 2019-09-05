@@ -27,6 +27,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   private String ignoreCharacters = ""; 
   private int nextField;
   private boolean rotated = false;
+  private boolean failed = false;
   private final ParserLocation location;
   private ParserLocation lastTokenEnd;
 
@@ -89,6 +90,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
 
       if (backField < 0) {
         logger.debug("Failed token {}, pushing parent", this);
+        failed = true;
         getParent()
           .flatMap(p -> p.pushback(false))
           .ifPresent(b -> result.append(b));
@@ -133,11 +135,17 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
       });
     }
 
+    failed = true;
     return Optional.of(result);
   }
 
   @Override
   public Optional<PartialToken> advance(boolean force) throws SyntaxError {
+
+    if (failed) {
+      logger.debug("Short-curcuiting advance request on failed token {} to parent {}", this, parent);
+      return parent == null ? Optional.empty() : parent.advance(force);
+    }
 
     if (nextField > 0) {
       // checking if the last token was successfully populated
@@ -157,6 +165,8 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
         logger.debug("last token still has some alternatives, not advancing");
         return Optional.of(token);
       } else if (token != null && !isOptional(currentField)){
+        logger.debug("FAILED!");
+        failed = true;
         if (parent == null) {
           throw new SyntaxError("Expected " + field, this, null);
         } else {
@@ -197,6 +207,7 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
     logger.debug("Populated token {}", this);
     sortPriorities();
     Rule.Metadata.metadata(token, this);
+    logger.debug("Advancing parent token ({})", parent);
     return parent == null ? Optional.empty() : parent.advance(force);
   }
 

@@ -45,12 +45,18 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
     if (TokenGrammar.isConcrete(tokenType)) {
       throw new IllegalArgumentException("Variant token cannot handle concrete type " + tokenType);
     }
+
     if (tokenType.isAnnotationPresent(Alternatives.class)) {
       variants = tokenType.getAnnotation(Alternatives.class).value();
     } else {
       final ConcurrentHashMap<Class, Integer> typePriorities = new ConcurrentHashMap<>();
       variants = reflections.getSubTypesOf(tokenType).stream()
         .filter(type -> {
+          boolean inTree = findInTree(token -> token != null && token.getTokenType() == type && token.location().position() == location.position()).isPresent();
+          if (inTree) {
+            logger.debug("Ignoring variant {} -- already in tree with same position ({})", type.getSimpleName(), location.position());
+            return false;
+          }
           Class superClass = type.getSuperclass();
           if (superClass != tokenType) {
             Class[] interfaces = type.getInterfaces();
@@ -59,7 +65,7 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
                 return true;
               }
             }
-            logger.info("Ignoring " + type + " (extends: " + superClass + ") ");
+            logger.debug("Ignoring " + type + " (extends: " + superClass + ") ");
             return false;
           }
           return true;
@@ -96,12 +102,15 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
     if (bestShot == null || token != null && bestShot.end().position() < token.end().position()) {
       bestShot = token;
     }
-    if (currentVariant < variants.length) {
+    if (token != null && token.alternativesLeft() > 0) {
+      logger.info("Not pushing parent: token has alternatives: {}", token);
+      return token.pullback();
+    } else if (currentVariant < variants.length) {
       logger.debug("Not pushing parent back: not all options exhausted for {}", this);
-      result = (StringBuilder) token.pullback().orElse(null);
+      result = (StringBuilder) (token == null ? null : token.pullback().orElse(null));
       token = null;
     } else {
-      logger.debug("Exhausted all variants, rollbacking parent token");
+      logger.debug("{}: Exhausted all variants on pushback, rollbacking parent token {}", this, parent);
       result = (StringBuilder) getParent()
         .flatMap(p -> p.pushback(false))
         .orElse(null);
@@ -141,39 +150,33 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   @Override
   public Optional<PartialToken> advance(boolean forcePopulate) throws SyntaxError {
     if (rotated) {
-      logger.info("Token was rotated, not advancing");
+      logger.debug("Token was rotated, not advancing");
       rotated = false;
       return Optional.of(token);
     } else if (isPopulated()) {
       bestShot = token;
-      logger.info("Populated {} as {}; Advancing to parent", this, token);
+      logger.debug("Populated {} as {}; Advancing to parent", this, token);
       return parent == null ? Optional.empty() : parent.advance(forcePopulate);
+    } else if (token != null && token.alternativesLeft() > 0) {
+      logger.debug("{}: Advancing to child token with alternatives: {}", this, token);
+      return Optional.of(token);
     } else if (currentVariant < variants.length) {
-      Class variant = null;
-      PartialToken leftRecursion = null;
-      while (currentVariant < variants.length) {
-        final Class candidate = variants[currentVariant++];
-        final int position = position();
-        leftRecursion = findInTree(token -> token.position() == position && token.getTokenType() == candidate).orElse(null);
-        if (leftRecursion != null) {
-          logger.debug("Left recursion detected on variant " + candidate.getSimpleName());
-        } else {
-          variant = candidate;
-          break;
-        }
-      }
+      Class variant = variants[currentVariant++];
 
-      if (leftRecursion == null) {
-        token = PartialToken.forClass(this, variant, location);
-        logger.info("Advancing to variant {}/{}: {}", currentVariant, variants.length, token);
-        return token.advance(false);
-      }
+      token = PartialToken.forClass(this, variant, location);
+      logger.info("Advancing to variant {}/{}: {}", currentVariant, variants.length, token);
+      return token.advance(false);
     }
 
     token = null;
 
-    logger.info("Exhausted all variants, returning to parent");
-    return parent == null ? Optional.empty() : parent.advance(forcePopulate);
+    logger.info("{}: Exhausted all variants on advance, returning to parent {}", this, parent);
+    if (parent == null) {
+      return Optional.empty();
+    }
+    
+    StringBuilder data = parent.pushback(forcePopulate).orElseGet(StringBuilder::new);
+    return Optional.of(new FailedToken(parent, data, location));
   }
   
   @Override
@@ -231,7 +234,9 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
     int position = position();
     StringBuilder result = new StringBuilder("'")
       .append(tail(10).replaceAll("\n", "\\n"))
-      .append("' <-- VariantToken[")
+      .append("' <-- ? extends ")
+      .append(tokenType.getSimpleName())
+      .append("[")
       .append(currentVariant)
       .append("/")
       .append(variants.length)
@@ -242,8 +247,8 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
       .append(position + consumed())
       .append("]");
 
-    if (currentVariant > 0) {
-      result.append(": ").append(variants[currentVariant - 1].getSimpleName());
+    if (token != null) {
+      result.append(": ").append(token);
     }
 
     return result.toString();
@@ -259,7 +264,7 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
 
   @Override
   public int alternativesLeft() {
-    return variants.length - currentVariant;
+    return variants.length - currentVariant + (token == null ? 0 : token.alternativesLeft());
   }
 
   @Override

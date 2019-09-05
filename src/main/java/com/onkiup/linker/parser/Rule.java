@@ -62,6 +62,10 @@ public interface Rule {
     return Metadata.metadata(this).get();
   }
 
+  default ParserLocation location() {
+    return metadata().location();
+  }
+
   /**
    * Reevaluation callback.
    * Called by parser every time it updates the token

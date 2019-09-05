@@ -204,4 +204,9 @@ public class CollectionToken<X> implements PartialToken<X> {
   public String tag() {
     return "Collection<" + memberType.getSimpleName() + ">";
   }
+
+  @Override
+  public int alternativesLeft() {
+    return 0;
+  }
 }

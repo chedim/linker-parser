@@ -140,7 +140,7 @@ public class TokenGrammar<X extends Rule> {
           if (token instanceof FailedToken) {
             String returned = (String) token.getToken();
             logger.info("Received from failed token: '{}'", returned);
-            buffer.append(returned);
+            buffer.insert(0, returned);
           }
         } while (token instanceof FailedToken);
 
