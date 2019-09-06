@@ -9,6 +9,6 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface IgnoreCharacters {
   String value() default "";
-  boolean inherit() default true;
+  boolean inherit() default false;
 }
 
