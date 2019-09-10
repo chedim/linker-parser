@@ -17,6 +17,7 @@ import com.onkiup.linker.parser.TokenGrammar;
 import com.onkiup.linker.parser.annotation.AdjustPriority;
 import com.onkiup.linker.parser.annotation.Alternatives;
 import com.onkiup.linker.parser.annotation.IgnoreCharacters;
+import com.onkiup.linker.parser.annotation.IgnoreVariant;
 import com.onkiup.linker.parser.token.PartialToken;
 import com.onkiup.linker.parser.util.ParserError;
 
@@ -52,6 +53,10 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
       final ConcurrentHashMap<Class, Integer> typePriorities = new ConcurrentHashMap<>();
       variants = reflections.getSubTypesOf(tokenType).stream()
         .filter(type -> {
+          if (type.isAnnotationPresent(IgnoreVariant.class)) {
+            logger.debug("Ignoring variant {} -- marked with @IgnoreVariant", type.getSimpleName());
+            return false;
+          }
           boolean inTree = findInTree(token -> token != null && token.getTokenType() == type && token.location().position() == location.position()).isPresent();
           if (inTree) {
             logger.debug("Ignoring variant {} -- already in tree with same position ({})", type.getSimpleName(), location.position());

@@ -82,6 +82,11 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
         if (ignoreCharacters.indexOf(character) == -1) {
           logger.debug("Did not find character {} in ignored character list", (int) character);
           cleanBuffer.append(character);
+        } else if (last) {
+          cleanBuffer.append(character);
+          StringBuilder ret = cleanBuffer;
+          cleanBuffer = new StringBuilder();
+          return Optional.of(ret);
         } else {
           logger.debug("Ignoring character with code " + (int) character);
           ignoredCharacters.append(character);

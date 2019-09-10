@@ -59,7 +59,7 @@ public interface Rule {
   }
 
   default PartialToken metadata() {
-    return Metadata.metadata(this).get();
+    return Metadata.metadata(this).orElseThrow(() -> new RuntimeException("Failed to obtain metadata for " + Rule.this));
   }
 
   default ParserLocation location() {
