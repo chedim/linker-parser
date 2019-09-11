@@ -122,7 +122,10 @@ public interface PartialToken<X> {
   int consumed();
 
   default int alternativesLeft() {
-    return 0;
+    return Arrays.stream(getChildren())
+      .filter(Objects::nonNull)
+      .mapToInt(PartialToken::alternativesLeft)
+      .sum();
   }
 
   default void rotate() {

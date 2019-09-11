@@ -16,7 +16,6 @@ import com.onkiup.linker.parser.annotation.SkipIfFollowedBy;
 
 public class TerminalToken implements PartialToken<String>, ConsumingToken<String> {
 
-  private static Logger logger = LoggerFactory.getLogger(TerminalToken.class);
 
   private Field field;
   private PartialToken<? extends Rule> parent;
@@ -32,10 +31,12 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
   private boolean skipped;
   private String optionalCondition = "";
   private ParserLocation location;
+  private Logger logger;
 
   public TerminalToken(PartialToken<? extends Rule> parent, Field field, ParserLocation location) {
     this.parent = parent;
     this.field = field;
+    this.logger = LoggerFactory.getLogger(field.getDeclaringClass().getName() + "$" + field.getName());
     this.location = location;
     this.matcher = TokenMatcher.forField(field);
     if (field.isAnnotationPresent(OptionalToken.class)) {
@@ -82,6 +83,11 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
         if (ignoreCharacters.indexOf(character) == -1) {
           logger.debug("Did not find character {} in ignored character list", (int) character);
           cleanBuffer.append(character);
+        } else if (last) {
+          cleanBuffer.append(character);
+          StringBuilder ret = cleanBuffer;
+          cleanBuffer = new StringBuilder();
+          return Optional.of(ret);
         } else {
           logger.debug("Ignoring character with code " + (int) character);
           ignoredCharacters.append(character);
@@ -111,28 +117,28 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
 
       boolean callParent = !(isOptional || isSkippable);
       if (optionalCondition.length() > 0) {
-        logger.debug("{}: Testing optional condition '{}'", this, optionalCondition);
+        logger.debug("Testing optional condition '{}'", optionalCondition);
         String followed = cleanBuffer.toString();
         if (!optionalCondition.equals(followed)) {
           if (optionalCondition.startsWith(followed)) {
-            logger.debug("Need to consume more characters to decide if token {} is optional", this);
+            logger.debug("Need to consume more characters to decide if token is optional");
             return Optional.empty();
           }
-          logger.debug("Token {} is not optional as it is followed by '{}' and not '{}'", this, cleanBuffer, optionalCondition);
+          logger.debug("Token is not optional as it is followed by '{}' and not '{}'", cleanBuffer, optionalCondition);
           callParent = true;
         }
       }
 
       if (callParent) {
-        logger.debug("Token {} is not optional; pushing back to parent", this);
+        logger.debug("Token is not optional; pushing back to parent");
         getParent()
           .flatMap(p -> p.pushback(true))
           .ifPresent(b -> {
-            logger.debug("Pushback from parent: '{}'", b);
+            logger.debug("Received characters from pushed back parent: '{}'", b);
             returnBuffer.insert(0, b);
           });
       } else {
-        logger.debug("Token {} is optional; returning consumed characters without notifying parent", this);
+        logger.debug("Token is optional; returning consumed characters without notifying parent");
         skipped = true;
       }
 
@@ -146,10 +152,10 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
       if (isSkippable && !last) {
         String after = cleanBuffer.substring(lastTestResult.getTokenLength());
         if (after.length() < optionalCondition.length()) {
-          logger.debug("Token {} is skippable -- need more input to detect if it should be skipped", this);
+          logger.debug("Token is skippable -- need more input to detect if it should be skipped");
           return Optional.empty();
         } else if (after.startsWith(optionalCondition)) {
-          logger.debug("Skipping token {} as it is followed by '{}'", this, optionalCondition);
+          logger.debug("Skipping this token as it is followed by '{}'", optionalCondition);
           StringBuilder returnBuffer = buffer;
           buffer = new StringBuilder();
           return Optional.of(returnBuffer);
@@ -169,8 +175,9 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
 
   @Override
   public Optional<StringBuilder> pullback() {
+    logger.debug("Pullback request received");
     if (isPopulated()) {
-      logger.debug("{}: Rolling back characters '{}{}'", this, ignoredCharacters, buffer);
+      logger.debug("Populated -- Rolling back characters '{}{}'", ignoredCharacters, token);
       StringBuilder result = new StringBuilder()
           .append(ignoredCharacters)
           .append(token);
@@ -178,6 +185,7 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
       token = null;
       return Optional.of(result);
     }
+    logger.debug("Not poppulated -- not returning any characters");
     return Optional.empty();
   }
 
@@ -219,25 +227,7 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
 
   @Override
   public String toString() {
-    StringBuilder result = new StringBuilder("'")
-      .append(tail(10).replaceAll("\n", "\\n"))
-      .append("' <-- Terminal(")
-      .append(matcher)
-      .append(")@[")
-      .append(position())
-      .append(" - ")
-      .append(end().position())
-      .append("]: <ignored: ")
-      .append(ignoredCharacters.length())
-      .append("; captured: ")
-      .append(cleanBuffer.length())
-      .append("; buffered: ")
-      .append(buffer.length())
-      .append("; token: ")
-      .append(token == null ? 0 : token.length())
-      .append(">");
-
-    return result.toString();
+    return field.getDeclaringClass().getName() + "$" + field.getName();
   }
 
   @Override

@@ -19,6 +19,7 @@ import com.onkiup.linker.parser.token.PartialToken;
 public class TokenGrammar<X extends Rule> {
   private static final Logger logger = LoggerFactory.getLogger(TokenGrammar.class);
   private Class<X> type;
+  private String ignoreTrail;
 
   public static <XX extends Rule> TokenGrammar<XX> forClass(Class<XX> type) {
     return new TokenGrammar<>(type);
@@ -34,6 +35,10 @@ public class TokenGrammar<X extends Rule> {
 
   public Class<X> getTokenType() {
     return type;
+  }
+
+  public void ignoreTrailCharacters(String chars) {
+    this.ignoreTrail = chars;
   }
 
   public X parse(String source) throws SyntaxError {
@@ -135,12 +140,13 @@ public class TokenGrammar<X extends Rule> {
         lastToken = token;
 
         do {
+          logger.debug("Advancing. Buffer size: {}", buffer.length());
           token = (PartialToken) token.advance(buffer.length() == 0).orElse(null);
           logger.debug("Advanced to token {}", token);
           if (token instanceof FailedToken) {
             String returned = (String) token.getToken();
             logger.info("Received from failed token: '{}'", returned);
-            buffer.append(returned);
+            buffer.insert(0, returned);
           }
         } while (token instanceof FailedToken);
 
@@ -167,6 +173,16 @@ public class TokenGrammar<X extends Rule> {
             int nextChar;
             while (-1 != (nextChar = source.read())) {
               buffer.append((char)nextChar);
+            }
+
+            if (ignoreTrail != null) {
+              for (int i = 0; i < buffer.length(); i++) {
+                if (ignoreTrail.indexOf(buffer.charAt(i)) < 0) {
+                  throw new SyntaxError("Unmatched trailing characters", rootToken, new StringBuilder(buffer.substring(i)));
+                }
+              }
+              rootToken.sortPriorities();
+              return rootToken.getToken();
             }
             throw new SyntaxError("Unmatched trailing characters", rootToken, buffer);
           } else {

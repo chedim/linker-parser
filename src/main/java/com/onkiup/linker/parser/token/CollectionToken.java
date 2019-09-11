@@ -14,8 +14,6 @@ import com.onkiup.linker.parser.annotation.CaptureLimit;
 import com.onkiup.linker.parser.util.ParserError;
 
 public class CollectionToken<X> implements PartialToken<X> {
-  private static final Logger logger = LoggerFactory.getLogger(CollectionToken.class);
-
   private PartialToken<? extends Rule> parent;
   private Field field;
   private Class<X> fieldType;
@@ -26,10 +24,12 @@ public class CollectionToken<X> implements PartialToken<X> {
   private boolean populated = false;
   private final ParserLocation location;
   private ParserLocation lastTokenEnd;
+  private final Logger logger;
 
   public CollectionToken(PartialToken<? extends Rule> parent, Field field, ParserLocation location) {
     this.parent = parent;
     this.field = field;
+    logger = LoggerFactory.getLogger(field.getDeclaringClass().getName() + "$" + field.getName() + "[]");
     this.location = location;
     lastTokenEnd = location;
     this.fieldType = (Class<X>) field.getType(); 
@@ -48,7 +48,7 @@ public class CollectionToken<X> implements PartialToken<X> {
       return parent.pushback(false);
     }
 
-    logger.info("Pulling back failed (last) member {} and marking collection token as populated: {}", current, this);
+    logger.info("Pulling back failed (last) member {} and marking collection token as populated", current);
     populated = true;
     PartialToken lastMember = current;
     return lastMember.pullback();
@@ -56,18 +56,19 @@ public class CollectionToken<X> implements PartialToken<X> {
 
   @Override
   public Optional<StringBuilder> pullback() {
-    logger.debug("Pulling {} back", this);
+    logger.debug("received pullback request, propagating to children");
     StringBuilder result = new StringBuilder();
     children.stream()
       .map(PartialToken::pullback)
       .forEach(o -> o.ifPresent(result::append));
 
+    logger.debug("pullback result: '{}'", result);
     return Optional.of(result);
   }
 
   @Override
   public Optional<PartialToken> advance(boolean force) throws SyntaxError {
-    logger.debug("Advancing {}", this);
+    logger.debug("received advance request");
     int size = children.size();
     if (current != null && !current.isPopulated()) {
       logger.debug("Last collection token failed");
@@ -79,7 +80,7 @@ public class CollectionToken<X> implements PartialToken<X> {
       children.add(current);
       lastTokenEnd = current.end();
       populated = (captureLimit == null) ? false : ++size == captureLimit.max();
-      logger.info("Appended token {} to {}; populated: {}", current, this, populated);
+      logger.info("Consumed token {}; populated: {}", current.getTokenType().getSimpleName(), populated);
     }
 
     if (force) {
@@ -91,7 +92,7 @@ public class CollectionToken<X> implements PartialToken<X> {
       return parent == null ? Optional.empty() : parent.advance(force);
     } else {
       current = PartialToken.forClass(this, memberType, lastTokenEnd);
-      logger.debug("Advancing to next collection member: {}", current);
+      logger.debug("Advancing to next collection member");
       return Optional.of(current);
     }
   }
@@ -142,27 +143,7 @@ public class CollectionToken<X> implements PartialToken<X> {
 
   @Override
   public String toString() {
-    StringBuilder result = new StringBuilder("'")
-      .append(tail(10).replaceAll("\n", "\\n"))
-      .append("' <-- Collection(")
-      .append(memberType.getSimpleName())
-      .append(")@[")
-      .append(location.position())
-      .append(" - ")
-      .append(end().position())
-      .append("]: ")
-      .append(children.size())
-      .append("\n");
-
-    for(int i = children.size() - 1; i > -1; i--) {
-      PartialToken child = children.get(i);
-      result.append("\t")
-        .append(String.format("%3d: ", i))
-        .append(child == null ? null : child.toString().replaceAll("\n",  "\n\t\t"))
-        .append("\n");
-    }
-
-    return result.toString();
+    return memberType.getName() + "[" + children.size() + "]";
   }
 
   @Override
@@ -203,5 +184,10 @@ public class CollectionToken<X> implements PartialToken<X> {
   @Override
   public String tag() {
     return "Collection<" + memberType.getSimpleName() + ">";
+  }
+
+  @Override
+  public int alternativesLeft() {
+    return 0;
   }
 }

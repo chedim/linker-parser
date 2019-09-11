@@ -96,5 +96,18 @@ public class FailedToken implements PartialToken, ConsumingToken {
   public PartialToken expected() {
     return parent.expected();
   }
+
+  @Override
+  public String toString() {
+    return new StringBuilder()
+      .append("'")
+      .append(data.length() > 10 ? data.substring(0, 5) + "<..>" + data.substring(data.length() - 6) : data)
+      .append("'")
+      .append(" <-- FailedToken@")
+      .append(location)
+      .append(" --> ")
+      .append(parent)
+      .toString();
+  }
 }
 

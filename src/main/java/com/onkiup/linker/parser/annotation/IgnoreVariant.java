@@ -5,10 +5,9 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-@Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface IgnoreCharacters {
-  String value() default "";
-  boolean inherit() default false;
+@Target(ElementType.TYPE)
+public @interface IgnoreVariant {
+
 }
 
