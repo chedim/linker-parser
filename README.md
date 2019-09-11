@@ -100,6 +100,13 @@ This allows based on Linker-parser evaluators calculate results of mathematical 
 For any questions or issues -- please either open a github issue in this project or tweet directly at [chedim](http://twitter.com/chedim) and I will do my best to help you. It would help me a lot if you include definitions for your failing rules in the message ;-)
 
 ## Version History
+* 0.7.1
+  - Various bugfixes and enhancements
+  - IgnoreCharacters.inherit now will be false by default
+  - Adds option to skip trailing characters from a list
+  - Adds option to create variant tokens ignored by parser
+  - Logging improvements
+  - Fixes VariantToken's pullback logic
 * 0.7 
   * Support for mathematical equations based on token priority; 
   * Improved token position reporting
