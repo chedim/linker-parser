@@ -140,6 +140,7 @@ public class TokenGrammar<X extends Rule> {
         lastToken = token;
 
         do {
+          logger.debug("Advancing. Buffer size: {}", buffer.length());
           token = (PartialToken) token.advance(buffer.length() == 0).orElse(null);
           logger.debug("Advanced to token {}", token);
           if (token instanceof FailedToken) {

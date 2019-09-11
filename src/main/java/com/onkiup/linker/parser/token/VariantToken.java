@@ -22,7 +22,6 @@ import com.onkiup.linker.parser.token.PartialToken;
 import com.onkiup.linker.parser.util.ParserError;
 
 public class VariantToken<X extends Rule> implements PartialToken<X> {
-  private static final Logger logger = LoggerFactory.getLogger(VariantToken.class);
 
   private static final Reflections reflections  = new Reflections(new ConfigurationBuilder()
         .setUrls(ClasspathHelper.forClassLoader(TokenGrammar.class.getClassLoader()))
@@ -38,9 +37,11 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   private PartialToken<? extends Rule> parent;
   private boolean rotated = false;
   private ParserLocation location;
+  private final Logger logger;
 
   public VariantToken(PartialToken parent, Class<X> tokenType, ParserLocation location) {
     this.tokenType = tokenType;
+    this.logger = LoggerFactory.getLogger(tokenType);
     this.parent = parent;
     this.location = location;
     if (TokenGrammar.isConcrete(tokenType)) {
@@ -142,13 +143,15 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
 
   @Override
   public Optional<StringBuilder> pullback() {
-    if (isPopulated()) {
-      logger.info("Pulling back resolved token {}", token);
+    logger.debug("Pullback request received");
+    if (token != null) {
       PartialToken discarded = token;
       StringBuilder result = (StringBuilder) discarded.pullback().orElse(null);
       token = null;
+      logger.debug("Pulled back from token: '{]}'", result);
       return Optional.ofNullable(result);
     }
+    logger.debug("No token present, nothing to delegate this pullback request to");
     return Optional.empty();
   }
 
@@ -236,27 +239,7 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
 
   @Override
   public String toString() {
-    int position = position();
-    StringBuilder result = new StringBuilder("'")
-      .append(tail(10).replaceAll("\n", "\\n"))
-      .append("' <-- ? extends ")
-      .append(tokenType.getSimpleName())
-      .append("[")
-      .append(currentVariant)
-      .append("/")
-      .append(variants.length)
-      .append("]")
-      .append("@[")
-      .append(position)
-      .append(" - ")
-      .append(position + consumed())
-      .append("]");
-
-    if (token != null) {
-      result.append(": ").append(token);
-    }
-
-    return result.toString();
+    return "? extends " + tokenType.getName();
   }
 
   @Override
