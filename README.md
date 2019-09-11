@@ -32,8 +32,7 @@ Other examples are available in [Linker-Sail](https://github.com/dmitriic/lisa) 
 - [RuleInvocation](https://github.com/dmitriic/lisa/blob/master/src/main/java/com/onkiup/linker/sail/grammar/RuleInvocation.java)
 
 Here's also a screencast of a simple interaction with Lisa REPL that uses three differently configured instances of  Linker-parser to parse command arguments, SAIL expressions and REPL commands:
-[![asciicast](https://asciinema.org/a/6tIA9Rbu0OTyhGjaijSOGeRoM.svg)](https://asciinema.org/a/6tIA9Rbu0OTyhGjaijSOGeRoM)
-
+[![asciicast](https://asciinema.org/a/UAaJ9lmJf3AhZ2iMls0ryMIlr.svg)](https://asciinema.org/a/UAaJ9lmJf3AhZ2iMls0ryMIlr)
 
 ## Creating a parser
 Invoke `TokenGrammar.forClass(Class<? extends Rule> rule)` with your root token class as parameter.
