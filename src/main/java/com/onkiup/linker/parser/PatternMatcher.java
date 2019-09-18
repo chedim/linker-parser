@@ -39,7 +39,7 @@ public class PatternMatcher implements TokenMatcher {
   }
 
   @Override
-  public TokenTestResult apply(StringBuilder buffer) {
+  public TokenTestResult apply(CharSequence buffer) {
     matcher.reset(buffer);
     boolean matches = matcher.matches(), 
             lookingAt = matcher.lookingAt(), 
@@ -54,7 +54,7 @@ public class PatternMatcher implements TokenMatcher {
           matcher.appendReplacement(result, replacement);
           return TestResult.match(matcher.end(), result.toString());
         } else {
-          String token = buffer.substring(0, matcher.end());
+          String token = buffer.subSequence(0, matcher.end()).toString();
           return TestResult.match(matcher.end(), token);
         }
       } else {
@@ -68,7 +68,7 @@ public class PatternMatcher implements TokenMatcher {
         } else if (lookingAt) {
           return TestResult.fail();
         } else {
-          String token = buffer.substring(0, matcher.start());
+          String token = buffer.subSequence(0, matcher.start()).toString();
           return TestResult.match(matcher.start(), token);
         }
       } else {

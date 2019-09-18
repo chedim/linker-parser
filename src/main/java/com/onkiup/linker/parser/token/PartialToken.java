@@ -15,11 +15,13 @@ import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.TokenGrammar;
 import com.onkiup.linker.parser.annotation.AdjustPriority;
+import com.onkiup.linker.parser.annotation.OptionalToken;
+import com.onkiup.linker.parser.annotation.SkipIfFollowedBy;
 import com.onkiup.linker.parser.util.ParserError;
 
 public interface PartialToken<X> {
 
-  static PartialToken forField(PartialToken parent, Field field, ParserLocation position) {
+  static PartialToken forField(CompoundToken<?> parent, Field field, ParserLocation position) {
 
     if (position == null) {
       throw new ParserError("Child token position cannot be null", parent);
@@ -27,12 +29,12 @@ public interface PartialToken<X> {
 
     Class fieldType = field.getType();
     if (fieldType.isArray()) {
-      return new CollectionToken(parent, field, position);
+      return new CollectionToken(parent, field, fieldType, position);
     } else if (Rule.class.isAssignableFrom(fieldType)) {
       if (!TokenGrammar.isConcrete(fieldType)) {
-        return new VariantToken(parent, fieldType, position);
+        return new VariantToken(parent, field, fieldType, position);
       } else {
-        return new RuleToken(parent, fieldType, position);
+        return new RuleToken(parent, field, fieldType, position);
       }
     } else if (fieldType == String.class) {
       return new TerminalToken(parent, field, position);
@@ -40,76 +42,110 @@ public interface PartialToken<X> {
     throw new IllegalArgumentException("Unsupported field type: " + fieldType);
   }
 
-  static PartialToken forClass(PartialToken parent, Class<? extends Rule> type, ParserLocation position) {
+  static PartialToken forClass(Class<? extends Rule> type, ParserLocation position) {
     if (position == null) {
-      throw new ParserError("Child token location cannot be null", parent);
+      position = new ParserLocation(null, 0, 0, 0);
     }
     if (TokenGrammar.isConcrete(type)) {
-      return new RuleToken(parent, type, position);
+      return new RuleToken(null, null, type, position);
     } else {
-      return new VariantToken(parent, type, position);
+      return new VariantToken(null, null, type, position);
     }
   }
 
-  /**
-   * advances this token using given subToken and returns next token to populate
-   * null sub-token indicates that current token did not match
-   * @param subToken populated sub-token
-   * @returns next token to populate or null if this is a root token and it has no further tokens to populate
-   */
-  Optional<PartialToken> advance(boolean forcePopulate) throws SyntaxError;
-  
-  /**
-   * Rollbacks the token until last junction
-   * Called by failed child token on a parent
-   * @returns StringBuilder with characters to be returned to the buffer or null
-   */
-  default Optional<StringBuilder> pushback(boolean force) {
-    return Optional.empty();
+  static CharSequence getOptionalCondition(Field field) {
+    if (field == null) {
+      return null;
+    }
+    if (field.isAnnotationPresent(OptionalToken.class)) {
+      return field.getAnnotation(OptionalToken.class).whenFollowedBy();
+    } else if (field.isAnnotationPresent(SkipIfFollowedBy.class)) {
+      return field.getAnnotation(SkipIfFollowedBy.class).value();
+    }
+    return null;
+  }
+
+  static boolean isOptional(Field field) {
+    return field != null && field.isAnnotationPresent(OptionalToken.class);
   }
 
   /**
-   * Pullbacks token characters
-   * Called by parent token on a child that was failed by latter child
-   * @returns StringBuilder with characters to be returned to the buffer of empty
+   * @return Java representation of populated token
    */
-  Optional<StringBuilder> pullback();
+  X token();
 
-  /**
-   * @returns Java representation of populated token
-   */
-  X getToken();
-
-  Class<X> getTokenType();
+  Class<X> tokenType();
 
   boolean isPopulated();
+  boolean isFailed();
+  boolean isOptional();
 
-  Optional<PartialToken> getParent();
+  Optional<CompoundToken<?>> parent();
+  Optional<Field> targetField();
 
-  default Optional<PartialToken> findInTree(Predicate<PartialToken> comparator) {
+  ParserLocation location();
+  ParserLocation end();
+
+  void markOptional();
+  void onPopulated(ParserLocation end); 
+
+  /** 
+   * @return all characters consumed by the token and its children
+   */
+  CharSequence source();
+
+  /**
+   * Called upon token failures
+   */
+  default void onFail() {
+    invalidate();
+    parent().ifPresent(CompoundToken::onChildFailed);
+  }
+
+  /**
+   * Called on failed tokens
+   * @return true if the token should continue consumption, false otherwise
+   */
+  default boolean lookahead(CharSequence buffer) {
+    CharSequence optionalCondition = PartialToken.getOptionalCondition(targetField().orElse(null));
+    final CharSequence[] parentBuffer = new CharSequence[] { buffer };
+    boolean conditionPresent = optionalCondition != null && optionalCondition.length() > 0;
+    boolean myResult = true;
+
+    if (!isOptional() && conditionPresent) {
+      if (buffer.length() >= optionalCondition.length()) {
+        CharSequence test = buffer.subSequence(0, optionalCondition.length());
+        if (Objects.equals(test, optionalCondition)) {
+          parentBuffer[0] = buffer.subSequence(optionalCondition.length(), buffer.length());
+          markOptional();
+        }
+        myResult = false;
+      } 
+    } else if (conditionPresent) {
+      parentBuffer[0] = buffer.subSequence(optionalCondition.length(), buffer.length());
+    }
+
+    return myResult || parent()
+      // delegating lookahead call to parent
+      .flatMap(p -> p.lookahead(parentBuffer[0]) ? Optional.of(true) : Optional.empty())
+      .isPresent();
+  }
+
+  default Optional<PartialToken<?>> findInTree(Predicate<PartialToken> comparator) {
     if (comparator.test(this)) {
       return Optional.of(this);
     }
 
-    return getParent()
+    return parent()
       .flatMap(parent -> parent.findInTree(comparator));
   }
 
-  default List<PartialToken> getPath() {
-    LinkedList<PartialToken> result = new LinkedList<>();
-    getParent().ifPresent(parent -> result.addAll(parent.getPath()));
+  default List<PartialToken<?>> path() {
+    LinkedList<PartialToken<?>> result = new LinkedList<>();
+    parent().ifPresent(parent -> result.addAll(parent.path()));
     result.add(this);
     return result;
   }
-
-  /**
-   * @returns String containing all characters to ignore for this token
-   */
-  default String getIgnoredCharacters() {
-    return "";
-  }
-
-  ParserLocation location();
 
   default int position() {
     ParserLocation location = location();
@@ -119,44 +155,18 @@ public interface PartialToken<X> {
     return location.position();
   }
 
-  int consumed();
-
-  default int alternativesLeft() {
-    return Arrays.stream(getChildren())
-      .filter(Objects::nonNull)
-      .mapToInt(PartialToken::alternativesLeft)
-      .sum();
-  }
-
-  default void rotate() {
-  }
-
-  default boolean rotatable() {
-    return false;
-  }
-
-  default void unrotate() {
-  }
-
   default int basePriority() {
     int result = 0;
-    Class<X> tokenType = getTokenType();
+    Class<X> tokenType = tokenType();
     if (tokenType.isAnnotationPresent(AdjustPriority.class)) {
       AdjustPriority adjustment = tokenType.getAnnotation(AdjustPriority.class);
       result += adjustment.value();
     }
-
-    for (PartialToken child : getChildren()) {
-      if (child != null && child.propagatePriority()) {
-        result += child.basePriority();
-      }
-    }
-
     return result;
   }
 
   default boolean propagatePriority() {
-    Class<X> tokenType = getTokenType();
+    Class<X> tokenType = tokenType();
     if (tokenType.isAnnotationPresent(AdjustPriority.class)) {
       return tokenType.getAnnotation(AdjustPriority.class).propagate();
     }
@@ -168,45 +178,29 @@ public interface PartialToken<X> {
 
   }
 
-  default PartialToken[] getChildren() {
-    return new PartialToken[0];
-  }
-
-  default void setChildren(PartialToken[] children) {
-    throw new RuntimeException("setChildren is unsupported for " + this);
-  }
-
   default PartialToken replaceCurrentToken() {
     throw new RuntimeException("Unsupported");
   }
 
-  default void setToken(X token) {
-    throw new RuntimeException("Unsupported");  
+  default void token(X token) {
+    throw new RuntimeException("Unsupported");
   }
 
   default void invalidate() {
-    
   }
 
-  ParserLocation end();
-
-  StringBuilder source();
-
-  default String tag() {
-    return "UNKNOWN";
-  }
-
-  default void visit(Consumer<PartialToken> visitor) {
-    Arrays.stream(getChildren())
-      .filter(Objects::nonNull)
-      .forEach(child -> child.visit(visitor));
+  default void visit(Consumer<PartialToken<?>> visitor) {
     visitor.accept(this);
   }
 
-  default PartialToken root() {
-    PartialToken current = this;
+  default int alternativesLeft() {
+    return 0;
+  }
+
+  default PartialToken<?> root() {
+    PartialToken<?> current = this;
     while(true) {
-      PartialToken parent = (PartialToken) current.getParent().orElse(null);
+      PartialToken<?> parent = current.parent().orElse(null);
       if (parent == null) {
         return current;
       }
@@ -214,14 +208,13 @@ public interface PartialToken<X> {
     }
   }
 
-  default String tail(int length) {
-    String source = source().toString();
+  default CharSequence tail(int length) {
+    CharSequence source = source();
     if (source.length() > length) {
-      source = source.substring(source.length() - length);
+      source = source.subSequence(source.length() - length, length);
     }
     return String.format("%" + length + "s", source);
   }
 
-  PartialToken expected();
 }
 

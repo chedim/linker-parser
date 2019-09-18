@@ -7,7 +7,7 @@ import java.util.function.Function;
 import com.onkiup.linker.parser.annotation.CapturePattern;
 
 @FunctionalInterface
-public interface TokenMatcher extends Function<StringBuilder, TokenTestResult> {
+public interface TokenMatcher extends Function<CharSequence, TokenTestResult> {
   
   public static TokenMatcher forField(Field field) {
     Class type = field.getType();

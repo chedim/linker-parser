@@ -11,7 +11,7 @@ public class TerminalMatcher implements TokenMatcher {
   }
 
   @Override
-  public TokenTestResult apply(StringBuilder buffer) {
+  public TokenTestResult apply(CharSequence buffer) {
     int bufferLen = buffer.length();
     int charsToCompare = Math.min(patternLen, bufferLen);
     for (int i = 0; i < charsToCompare; i++) {

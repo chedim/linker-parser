@@ -1,6 +1,7 @@
 package com.onkiup.linker.parser.token;
 
 import java.lang.reflect.Field;
+import java.util.Objects;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -21,23 +22,20 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
   private PartialToken<? extends Rule> parent;
   private TokenMatcher matcher;
   private TokenTestResult lastTestResult;
-  private String token;
-  private StringBuilder buffer = new StringBuilder();
-  private StringBuilder cleanBuffer = new StringBuilder();
-  private StringBuilder ignoredCharacters = new StringBuilder();
+  private CharSequence token;
   private boolean failed = false;
   private boolean isOptional;
-  private boolean isSkippable;
   private boolean skipped;
-  private String optionalCondition = "";
-  private ParserLocation location;
+  private CharSequence optionalCondition = "";
+  private final ParserLocation start;
+  private ParserLocation end;
   private Logger logger;
 
   public TerminalToken(PartialToken<? extends Rule> parent, Field field, ParserLocation location) {
     this.parent = parent;
     this.field = field;
     this.logger = LoggerFactory.getLogger(field.getDeclaringClass().getName() + "$" + field.getName());
-    this.location = location;
+    this.start = this.end = location;
     this.matcher = TokenMatcher.forField(field);
     if (field.isAnnotationPresent(OptionalToken.class)) {
       OptionalToken optional = field.getAnnotation(OptionalToken.class);
@@ -50,15 +48,22 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
         throw new IllegalStateException("Tokens cannot be both optional and skippable (" + field.getDeclaringClass().getSimpleName() + "." + field.getName() + ")");
       }
       SkipIfFollowedBy condition = field.getAnnotation(SkipIfFollowedBy.class);
-      this.isSkippable = true;
+      this.isOptional = true;
       this.optionalCondition = condition.value();
     }
+
+    this.setTokenMatcher(matcher);
   }
 
   public TerminalToken(PartialToken<? extends Rule> parent, TokenMatcher matcher) {
     this.parent = parent;
     this.matcher = matcher;
-    this.location = new ParserLocation("unknown", 0, 0, 0);
+    this.start = this.end = new ParserLocation("unknown", 0, 0, 0);
+  }
+
+  @Override
+  public boolean isFailed() {
+    return failed;
   }
 
   @Override
@@ -68,109 +73,41 @@ public class TerminalToken implements PartialToken<String>, ConsumingToken<Strin
   }
 
   @Override
-  public Optional<StringBuilder> consume(char character, boolean last) {
+  public void onPopulate(CharSequence value) {
+    logger.debug("-- MATCHED");
+    this.token = value;
+    this.end = 
+  }
 
-    if (token != null) {
-      return Optional.of(new StringBuilder().append(character));
+  @Override
+  public boolean onFail(CharSequence on) {
+    logger.debug("-- FAILED");
+    failed = true;
+    return !lookahead(on);
+  }
+
+  @Override
+  public boolean lookahead(CharSequence buffer) {
+    if (optionalCondition == null || optionalCondition.length() == 0) {
+      logger.debug("the token is unconditionally optional");
+      skipped = true;
+      return false;
+    }
+    
+    if (optionalCondition.length() > buffer.length()) {
+      logger.debug("unable to resolve optionality conditions -- not enough characters -- continuting lookahead");
+      return true;
     }
 
-    String ignoreCharacters = parent == null ? null : parent.getIgnoredCharacters();
-
-    buffer.append(character);
-
-    if (ignoreCharacters != null) {
-      if (cleanBuffer.length() == 0) {
-        if (ignoreCharacters.indexOf(character) == -1) {
-          logger.debug("Did not find character {} in ignored character list", (int) character);
-          cleanBuffer.append(character);
-        } else if (last) {
-          cleanBuffer.append(character);
-          StringBuilder ret = cleanBuffer;
-          cleanBuffer = new StringBuilder();
-          return Optional.of(ret);
-        } else {
-          logger.debug("Ignoring character with code " + (int) character);
-          ignoredCharacters.append(character);
-          location = location.advance("" + character);
-        }
-      } else {
-        logger.debug("Clean buffer is not empty, not testing if the character should be ignored");
-        cleanBuffer.append(character);
-      }
-    } else {
-      logger.info("Accepting all characters as ignored characters list was empty");
-      cleanBuffer.append(character);
+    if (Objects.equals(optionalCondition, buffer.subSequence(0, optionalCondition.length()))) {
+      logger.debug("parser input satisfies token optionality condition");
+      skipped = true;
     }
-
-    if (cleanBuffer.length() == 0) {
-      return Optional.empty();
-    }
-
-    if (!failed) {
-      lastTestResult = matcher.apply(cleanBuffer);
-    }
-
-    if (failed || lastTestResult.isFailed()) {
-      failed = true;
-      logger.debug("Test failed on buffer '{}' using matcher {}", cleanBuffer, matcher);
-      StringBuilder returnBuffer = new StringBuilder();
-
-      boolean callParent = !(isOptional || isSkippable);
-      if (optionalCondition.length() > 0) {
-        logger.debug("Testing optional condition '{}'", optionalCondition);
-        String followed = cleanBuffer.toString();
-        if (!optionalCondition.equals(followed)) {
-          if (optionalCondition.startsWith(followed)) {
-            logger.debug("Need to consume more characters to decide if token is optional");
-            return Optional.empty();
-          }
-          logger.debug("Token is not optional as it is followed by '{}' and not '{}'", cleanBuffer, optionalCondition);
-          callParent = true;
-        }
-      }
-
-      if (callParent) {
-        logger.debug("Token is not optional; pushing back to parent");
-        getParent()
-          .flatMap(p -> p.pushback(true))
-          .ifPresent(b -> {
-            logger.debug("Received characters from pushed back parent: '{}'", b);
-            returnBuffer.insert(0, b);
-          });
-      } else {
-        logger.debug("Token is optional; returning consumed characters without notifying parent");
-        skipped = true;
-      }
-
-      returnBuffer.append(buffer);
-      buffer = new StringBuilder();
-      logger.debug("Returning back to parser buffer: '{}'", returnBuffer); 
-      return Optional.of(returnBuffer);
-    } else if (lastTestResult.isMatch() || (lastTestResult.isMatchContinue() && last)) {
-      logger.debug("Test suceeded (forced: {}) on buffer '{}' using matcher {}", last, cleanBuffer, matcher);
-
-      if (isSkippable && !last) {
-        String after = cleanBuffer.substring(lastTestResult.getTokenLength());
-        if (after.length() < optionalCondition.length()) {
-          logger.debug("Token is skippable -- need more input to detect if it should be skipped");
-          return Optional.empty();
-        } else if (after.startsWith(optionalCondition)) {
-          logger.debug("Skipping this token as it is followed by '{}'", optionalCondition);
-          StringBuilder returnBuffer = buffer;
-          buffer = new StringBuilder();
-          return Optional.of(returnBuffer);
-        }
-      }
-
-      StringBuilder result = new StringBuilder(populate(lastTestResult).toString());
-      buffer = new StringBuilder();
-      return Optional.of(result);
-    }
-    return Optional.empty();
+    return false;
   }
 
   private boolean isOptional() {
-    return field.isAnnotationPresent(OptionalToken.class);
+    return skipped;
   }
 
   @Override

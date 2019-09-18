@@ -5,10 +5,14 @@ import com.onkiup.linker.parser.token.PartialToken;
 public class ParserError extends RuntimeException {
 
   private PartialToken source;
-  private String message;
 
   public ParserError(String msg, PartialToken source) {
-    this.message = msg;
+    super(message);
+    this.source = source;
+  }
+
+  public ParserError(String msg, PartialToken source, Throwable cause) {
+    super(message, cause);
     this.source = source;
   }
 
@@ -17,7 +21,7 @@ public class ParserError extends RuntimeException {
     StringBuilder result = new StringBuilder("Parser error at position ");
     result.append(source.position())
       .append(": ")
-      .append(message)
+      .append(getMessage())
       .append("\n");
 
     PartialToken parent = source;
