@@ -1,23 +1,31 @@
 package com.onkiup.linker.parser;
 
+import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
 import java.lang.reflect.Modifier;
 import java.util.Collection;
+import java.util.Enumeration;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import org.apache.log4j.Appender;
+import org.apache.log4j.Layout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.onkiup.linker.parser.token.CompoundToken;
 import com.onkiup.linker.parser.token.ConsumingToken;
-import com.onkiup.linker.parser.token.FailedToken;
 import com.onkiup.linker.parser.token.PartialToken;
+import com.onkiup.linker.parser.util.LoggerLayout;
+import com.onkiup.linker.parser.util.ParserError;
 
 // at 0.2.2:
 // - replaced all "evaluate" flags with context
 public class TokenGrammar<X extends Rule> {
-  private static final Logger logger = LoggerFactory.getLogger(TokenGrammar.class);
+  private static final Logger logger = LoggerFactory.getLogger("PARSER LOOP");
+  private static final ThreadLocal<StringBuilder> BUFFER = new ThreadLocal<>();
   private Class<X> type;
   private String ignoreTrail;
 
@@ -75,130 +83,266 @@ public class TokenGrammar<X extends Rule> {
   }
 
   public X tokenize(String sourceName, Reader source) throws SyntaxError {
-    PartialToken<X> rootToken = PartialToken.forClass(null, type, new ParserLocation(sourceName, 0, 0, 0));
-    PartialToken token = rootToken;
-    PartialToken lastToken = token;
+    CompoundToken<X> rootToken = CompoundToken.forClass(type, new ParserLocation(sourceName, 0, 0, 0));
+    CompoundToken parent = rootToken;
+    ConsumingToken<?> consumer = nextConsumingToken(parent).orElseThrow(() -> new ParserError("No possible consuming tokens found", parent));
     StringBuilder buffer = new StringBuilder();
-    boolean hitEnd = false;
     int line = 0, col = 0;
-    AtomicInteger position = new AtomicInteger(0); 
+    AtomicInteger position = new AtomicInteger(0);
     try {
+      setupLoggingLayouts(buffer);
       do {
-        logger.debug("----------------------------------------------------------------------------------------");
-        logger.debug("BUFFER = '{}'", buffer);
-        logger.debug("POSITION = {}", position.get());
-        logger.debug("----------------------------------------------------------------------------------------");
         if (logger.isDebugEnabled()) {
-          Collection<PartialToken> path = token.getPath();
+          System.out.println("|----------------------------------------------------------------------------------------");
+          System.out.println("|----------------------------------------------------------------------------------------");
+          System.out.println("|----------------------------------------------------------------------------------------");
+          Collection<PartialToken> path = consumer.path();
 
-          String trace = (String) path.stream()
+          String trace = path.stream()
             .map(Object::toString)
-            .collect(Collectors.joining("\n"));
-          logger.debug("Trace:\n{}", trace);
+            .collect(Collectors.joining("\n|-"));
+          System.out.println("|-" + trace);
+          System.out.println("|----------------------------------------------------------------------------------------");
+          System.out.println("|----------------------------------------------------------------------------------------");
         }
 
-        while (buffer.length() < 2 && !hitEnd) {
-          int nextChar = source.read();
-          hitEnd = nextChar < 0;
-          if (!hitEnd) {
-            buffer.append((char) nextChar);
+        ConsumingToken lastConsumer = consumer;
 
-            position.getAndIncrement();
-            col++;
-
-            if (nextChar == '\n') {
-              line++;
-              col = 0;
+        try {
+          boolean hitEnd = processConsumingToken(source, buffer, consumer);
+          if (hitEnd) {
+            logger.debug("Hit end while processing {}", consumer.tag());
+            if (!consumer.isPopulated() && !consumer.isFailed()) {
+              consumer.onFail();
             }
           }
-        }
 
-        if (buffer.length() > 0 && token instanceof ConsumingToken) {
-          logger.debug("Feeding character '{}' to {}", buffer.charAt(0), token);
-          final ConsumingToken consumingToken = (ConsumingToken) token;
-          boolean consumed = (Boolean)consumingToken.consume(buffer.charAt(0), buffer.length() == 1)
-            .map(Object::toString)
-            .map(returned -> {
-              buffer.replace(0, 1, (String) returned);
-              position.addAndGet(1 - ((String)returned).length());
-              logger.debug("Token {} returned characters: '{}'; buffer = '{}'", consumingToken, returned, buffer);
-              return false;
-            })
-            .orElseGet(() -> {
-              logger.debug("Discarding consumed by token {} character '{}'", consumingToken, buffer.charAt(0));
-              buffer.delete(0, 1);
-              position.incrementAndGet();
-              return true;
-            });
-
-          if (consumed) {
-            // prevents parser from advancing to next token
-            continue;
+          if (consumer.isFailed()) {
+            logger.debug("!!! CONSUMER FAILED !!! {}", consumer.tag());
+            //if (!consumer.isOptional()) {
+              consumer = processTraceback(consumer, buffer).orElse(null);
+            //}
+          } else if (consumer.isPopulated()) {
+            logger.debug("consumer populated: {}", consumer.tag());
+            consumer = onPopulated(consumer)
+                .flatMap(TokenGrammar::nextConsumingToken)
+                .orElse(null);
           }
-        }
 
-        lastToken = token;
-
-        do {
-          logger.debug("Advancing. Buffer size: {}", buffer.length());
-          token = (PartialToken) token.advance(buffer.length() == 0).orElse(null);
-          logger.debug("Advanced to token {}", token);
-          if (token instanceof FailedToken) {
-            String returned = (String) token.getToken();
-            logger.info("Received from failed token: '{}'", returned);
-            buffer.insert(0, returned);
+          if (consumer == lastConsumer) {
+            consumer = nextConsumingToken(consumer).orElse(null);
           }
-        } while (token instanceof FailedToken);
 
-
-        if (token == null) {
-          if (buffer.length() > 0 || !hitEnd) {
-            logger.debug("Trying to rotate root token to avoid unmatched characters...");
-            if (rootToken.rotatable()) {
-              rootToken.rotate();
-              logger.debug("Rotated root token");
-              token = rootToken;
-              continue;
-            }
-
-            int alternativesLeft = rootToken.alternativesLeft();
-            logger.debug("Alternatives left for {}: {}", rootToken, alternativesLeft);
-            if (alternativesLeft > 0) {
-              logger.debug("Hit end but root token had alternatives left; backtracking the token and continuing with next variant");
-              rootToken.pullback().ifPresent(b -> buffer.insert(0, b));
-              token = rootToken;
-              continue;
-            }
-
-            int nextChar;
-            while (-1 != (nextChar = source.read())) {
-              buffer.append((char)nextChar);
-            }
-
-            if (ignoreTrail != null) {
-              for (int i = 0; i < buffer.length(); i++) {
-                if (ignoreTrail.indexOf(buffer.charAt(i)) < 0) {
-                  throw new SyntaxError("Unmatched trailing characters", rootToken, new StringBuilder(buffer.substring(i)));
-                }
+          if (consumer == null || buffer.length() == 0) {
+            if (rootToken.isPopulated()) {
+              if (!hitEnd) {
+                 consumer = processEarlyPopulation(rootToken, source, buffer).orElse(null);
+              } else {
+                logger.debug("Perfectly parsed into: {}", rootToken.tag());
+                return rootToken.token().get();
               }
-              rootToken.sortPriorities();
-              return rootToken.getToken();
+            } else if (consumer != null) {
+              logger.debug("Hit end and root token is not populated -- trying to traceback...");
+              do {
+                consumer.onFail();
+                consumer = processTraceback(consumer, buffer).orElse(null);
+              } while (buffer.length() == 0 && consumer != null);
+
+              if (buffer.length() != 0 && rootToken.isPopulated()) {
+                consumer = processEarlyPopulation(rootToken, source, buffer).orElse(null);
+              } else if (rootToken.isPopulated()) {
+                return rootToken.token().get();
+              }
             }
-            throw new SyntaxError("Unmatched trailing characters", rootToken, buffer);
-          } else {
-            rootToken.sortPriorities();
-            return rootToken.getToken();
           }
+        } catch (IOException ioe) {
+          throw new RuntimeException("Failed to read source data", ioe);
         }
-      } while(buffer.length() > 0);
+
+      } while(consumer != null && buffer.length() > 0);
+
+      if (rootToken.isPopulated()) {
+        return rootToken.token().orElse(null);
+      }
 
       throw new SyntaxError("Unexpected end of input", rootToken, buffer);
     } catch (SyntaxError se) {
       throw new RuntimeException("Syntax error at line " + line + ", column " + col, se);
     } catch (Exception e) {
       throw new RuntimeException(e);
+    } finally {
+      restoreLoggingLayouts();
     }
   }
 
+  private Optional<ConsumingToken<?>> processEarlyPopulation(CompoundToken<?> rootToken, Reader source, StringBuilder buffer) throws IOException {
+    if (validateTrailingCharacters(source, buffer)) {
+      logger.debug("Successfully parsed (with valid trailing characters '{}') into: {}", buffer, rootToken.tag());
+      buffer.delete(0, buffer.length());
+      return Optional.empty();
+    } else if (rootToken.rotatable()) {
+      rootToken.rotate();
+      return nextConsumingToken(rootToken);
+    } else if (rootToken.alternativesLeft() > 0) {
+      logger.info("Root token populated too early, failing it...");
+      rootToken.traceback().ifPresent(returned -> {
+        logger.debug("Returned by root token: '{}'", LoggerLayout.sanitize(returned));
+        buffer.insert(0, returned);
+      });
+      rootToken.onFail();
+      return nextConsumingToken(rootToken);
+    } else {
+      return Optional.empty();
+    }
+  }
+
+  private static Optional<CompoundToken<?>> onPopulated(PartialToken<?> child) {
+    return child.parent().flatMap(parent -> {
+      parent.onChildPopulated();
+      if (parent.isPopulated()) {
+        return onPopulated(parent);
+      }
+      return Optional.of(parent);
+    });
+  }
+
+  private static Optional<ConsumingToken<?>> processTraceback(PartialToken<?> child, StringBuilder buffer) {
+    return child.parent().flatMap(parent -> {
+      if (child.isFailed()) {
+        logger.debug("^^^--- TRACEBACK: {} <- {}", parent.tag(), child.tag());
+        parent.onChildFailed();
+        if (parent.isFailed() || parent.isPopulated()) {
+          return processTraceback(parent, buffer);
+        }
+
+        parent.traceback().ifPresent(returned -> buffer.insert(0, returned.toString()));
+        return nextConsumingToken(parent);
+      } else {
+        logger.debug("|||--- TRACEBACK: (self) <- {}", child.tag());
+        return firstUnfilledParent(child).flatMap(TokenGrammar::nextConsumingToken);
+      }
+    });
+  }
+
+  private static Optional<CompoundToken<?>> firstUnfilledParent(PartialToken<?> child) {
+    logger.debug("traversing back to first unfilled parent from {}", child.tag());
+    if (child instanceof CompoundToken && ((CompoundToken<?>)child).unfilledChildren() > 0) {
+      logger.debug("<<<--- NEXT UNFILLED: (self) <--- {}", child.tag());
+      return Optional.of((CompoundToken<?>)child);
+    }
+
+    return Optional.ofNullable(
+        child.parent().flatMap(parent -> {
+          logger.debug("parent: {}", parent.tag());
+          parent.onChildPopulated();
+          if (parent.isPopulated()) {
+            logger.debug("^^^--- NEXT UNFILLED: {} <-?- {}", parent.tag(), child.tag());
+            return firstUnfilledParent(parent);
+          } else {
+            logger.debug("<<<--- NEXT UNFILLED: {} <--- {}", parent.tag(), child.tag());
+            return Optional.of(parent);
+          }
+        }).orElseGet(() -> {
+          if (child instanceof CompoundToken) {
+            logger.debug("XXX NO NEXT UNFILLED: XXX <--- {} (compound: true, unfilled children: {}", child, ((CompoundToken<?>)child).unfilledChildren());
+          } else {
+            logger.debug("XXX NO NEXT UNFILLED: XXX <--- {}", child);
+          }
+          return null;
+        })
+    );
+  }
+  
+  public static Optional<ConsumingToken<?>> nextConsumingToken(CompoundToken<?> from) {
+    while (from != null) {
+      PartialToken<?> child = from.nextChild().orElse(null);
+      if (child instanceof ConsumingToken) {
+        logger.debug("--->>> NEXT CONSUMER: {} ---> {}", from.tag(), child.tag());
+        return Optional.of((ConsumingToken<?>)child);
+      } else if (child instanceof CompoundToken) {
+          from = (CompoundToken)child;
+      } else if (child == null) {
+        from = from.parent().orElse(null);
+      } else {
+        throw new RuntimeException("Unknown child type: " + child.getClass());
+      }
+    }
+    logger.debug("---XXX NEXT UNFILLED: {} ---> XXX (not found)", from);
+    return Optional.empty();
+  }
+
+  private static Optional<ConsumingToken<?>> nextConsumingToken(ConsumingToken<?> from) {
+    return from.parent().flatMap(TokenGrammar::nextConsumingToken);
+  }
+
+  private boolean processConsumingToken(Reader source, StringBuilder buffer, ConsumingToken<?> token) throws IOException {
+    boolean accepted = true;
+    while (accepted) {
+      if (populateBuffer(source, buffer)) {
+        char character = buffer.charAt(0);
+        accepted = token.consume(buffer.charAt(0)).map(CharSequence::toString).map(returned -> {
+          logger.debug("------ RETURN: '{}' +++ {} = '{}'", LoggerLayout.sanitize(String.valueOf(character)), token.tag(), LoggerLayout.sanitize(returned));
+          buffer.replace(0, 1, returned);
+          return false;
+        }).orElseGet(() -> {
+          logger.debug("---+++ CONSUME: '{}' +++ {}", LoggerLayout.sanitize(String.valueOf(character)), token.tag());
+          buffer.delete(0, 1);
+          return true;
+        });
+      } else {
+        return true;
+      }
+    }
+    return !populateBuffer(source, buffer);
+  }
+
+  private boolean populateBuffer(Reader source, StringBuilder buffer) throws IOException {
+    if (buffer.length() == 0) {
+      int character = source.read();
+      if (character < 0) {
+        return false;
+      } else {
+        buffer.append((char)character);
+      }
+    }
+    return true;
+  }
+
+  private boolean validateTrailingCharacters(Reader source, StringBuilder buffer) throws IOException {
+    boolean hitEnd = false;
+    do {
+      populateBuffer(source, buffer);
+      if (buffer.length() > 0) {
+        char test = buffer.charAt(0);
+        if (ignoreTrail != null && ignoreTrail.indexOf(test) < 0) {
+          return false;
+        }
+        buffer.delete(0, 1);
+        populateBuffer(source, buffer);
+      }
+    } while (buffer.length() > 0);
+    return true;
+  }
+
+  private void setupLoggingLayouts(StringBuilder buffer) {
+    Enumeration<Appender> appenders = org.apache.log4j.Logger.getRootLogger().getAllAppenders();
+    while(appenders.hasMoreElements()) {
+      Appender appender = appenders.nextElement();
+      LoggerLayout loggerLayout = new LoggerLayout(appender.getLayout(), buffer);
+      appender.setLayout(loggerLayout);
+    }
+  }
+
+  private void restoreLoggingLayouts() {
+    Enumeration<Appender> appenders = org.apache.log4j.Logger.getRootLogger().getAllAppenders();
+    while(appenders.hasMoreElements()) {
+      Appender appender = appenders.nextElement();
+      Layout layout = appender.getLayout();
+      if (layout instanceof LoggerLayout) {
+        LoggerLayout loggerLayout = (LoggerLayout) layout;
+        appender.setLayout(loggerLayout.parent());
+      }
+    }
+  }
 }
 

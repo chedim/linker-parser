@@ -18,7 +18,7 @@ public class ParserLocation {
     int column = 0;
     for (int i = 0; i < text.length(); i++) {
       if (text.charAt(i) == '\n') {
-        line++;
+        lines++;
         column = 0;
       } else {
         column++;
@@ -100,7 +100,7 @@ public class ParserLocation {
     int anotherLines = another.line();
     int resultLine = line + anotherLines;
     int resultColumn = anotherLines == 0 ? column + another.column() : another.column();
-    return new ParserLocation(name, resultLine, resultColumn, position + another.position());
+    return new ParserLocation(name, position + another.position(), resultLine, resultColumn);
   }
 }
 

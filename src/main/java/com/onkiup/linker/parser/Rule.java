@@ -35,22 +35,21 @@ public interface Rule {
   }
 
   /**
-   * @returns parent token or null if this token is root token
+   * @return parent token or null if this token is root token
    */
   default <R extends Rule> Optional<R> parent() {
-    PartialToken meta = Metadata.metadata(this).get();
-    do {
-      meta = (PartialToken) meta.getParent().orElse(null);
-    } while (meta != null && !(meta instanceof RuleToken));
-
-    if (meta != null) {
-      return Optional.of((R) meta.getToken());
-    }
-    return Optional.empty();
+    return Metadata.metadata(this)
+      .map(meta -> {
+        do {
+          meta = (PartialToken) meta.parent().orElse(null);
+        } while (meta instanceof VariantToken);
+        return meta;
+      })
+      .flatMap(PartialToken::token);
   }
 
   /**
-   * @returns true if this token was successfully populated; false if parser is still working on some of the token's fields
+   * @return true if this token was successfully populated; false if parser is still working on some of the token's fields
    */
   default boolean populated() {
     return Metadata.metadata(this)

@@ -21,9 +21,9 @@ public class TerminalMatcher implements TokenMatcher {
     }
 
     if (patternLen <= bufferLen) {
-      return TestResult.MATCH.token(patternLen, pattern);
+      return TestResult.match(patternLen, pattern);
     }
-    return TestResult.matchContinue(bufferLen, buffer.toString());
+    return TestResult.continueNoMatch();
   }
 
   @Override

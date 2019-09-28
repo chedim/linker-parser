@@ -11,19 +11,18 @@ import com.onkiup.linker.parser.token.VariantToken;
 
 public class SyntaxError extends RuntimeException {
 
-  private PartialToken lastToken;
+  private PartialToken expected;
   private StringBuilder source;
   private String message;
 
-  public SyntaxError(String message, PartialToken lastToken, StringBuilder source) {
+  public SyntaxError(String message, PartialToken expected, StringBuilder source) {
     this.message = message;
-    this.lastToken = lastToken;
+    this.expected = expected;
     this.source = source;
   }
 
   @Override
   public String toString() {
-    PartialToken expected = lastToken.expected();
     StringBuilder result = new StringBuilder("Parser error:")
       .append(message)
       .append("\n")
@@ -36,7 +35,7 @@ public class SyntaxError extends RuntimeException {
       .append("\n\n\tTraceback:\n\t\t");
 
     PartialToken parent = expected;
-    while (null != (parent = (PartialToken) parent.getParent().orElse(null))) {
+    while (null != (parent = (PartialToken) parent.parent().orElse(null))) {
       result.append(parent.toString().replace("\n", "\n\t\t"));
     }
 

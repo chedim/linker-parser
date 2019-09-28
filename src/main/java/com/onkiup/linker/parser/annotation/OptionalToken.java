@@ -9,5 +9,6 @@ import java.lang.annotation.Target;
 @Target(ElementType.FIELD)
 public @interface OptionalToken {
   String whenFollowedBy() default "";
+  String whenFieldIsNull() default "";
 }
 

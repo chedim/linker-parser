@@ -2,32 +2,36 @@ package com.onkiup.linker.parser.token;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.LinkedList;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import org.slf4j.Logger;
+
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
-import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.TokenGrammar;
 import com.onkiup.linker.parser.annotation.AdjustPriority;
 import com.onkiup.linker.parser.annotation.OptionalToken;
 import com.onkiup.linker.parser.annotation.SkipIfFollowedBy;
+import com.onkiup.linker.parser.util.LoggerLayout;
 import com.onkiup.linker.parser.util.ParserError;
 
 public interface PartialToken<X> {
 
-  static PartialToken forField(CompoundToken<?> parent, Field field, ParserLocation position) {
+  static PartialToken forField(CompoundToken parent, Field field, ParserLocation position) {
 
     if (position == null) {
       throw new ParserError("Child token position cannot be null", parent);
     }
 
     Class fieldType = field.getType();
+    return forField(parent, field, fieldType, position);
+  }
+
+  static <X> PartialToken<X> forField(CompoundToken parent, Field field, Class fieldType, ParserLocation position) {
     if (fieldType.isArray()) {
       return new CollectionToken(parent, field, fieldType, position);
     } else if (Rule.class.isAssignableFrom(fieldType)) {
@@ -37,45 +41,68 @@ public interface PartialToken<X> {
         return new RuleToken(parent, field, fieldType, position);
       }
     } else if (fieldType == String.class) {
-      return new TerminalToken(parent, field, position);
+      return (PartialToken<X>) new TerminalToken(parent, field, fieldType, position);
+    } else if (fieldType.isEnum()) {
+      return (PartialToken<X>) new EnumToken(parent, field, fieldType, position);
     }
     throw new IllegalArgumentException("Unsupported field type: " + fieldType);
   }
 
-  static PartialToken forClass(Class<? extends Rule> type, ParserLocation position) {
-    if (position == null) {
-      position = new ParserLocation(null, 0, 0, 0);
-    }
-    if (TokenGrammar.isConcrete(type)) {
-      return new RuleToken(null, null, type, position);
-    } else {
-      return new VariantToken(null, null, type, position);
-    }
-  }
-
-  static CharSequence getOptionalCondition(Field field) {
+  static Optional<CharSequence> getOptionalCondition(Field field) {
     if (field == null) {
-      return null;
+      return Optional.empty();
     }
+    CharSequence result = null;
     if (field.isAnnotationPresent(OptionalToken.class)) {
-      return field.getAnnotation(OptionalToken.class).whenFollowedBy();
+      result = field.getAnnotation(OptionalToken.class).whenFollowedBy();
     } else if (field.isAnnotationPresent(SkipIfFollowedBy.class)) {
-      return field.getAnnotation(SkipIfFollowedBy.class).value();
+      result = field.getAnnotation(SkipIfFollowedBy.class).value();
     }
-    return null;
+
+    return Optional.ofNullable(result == null || result.length() == 0 ? null : result);
   }
 
-  static boolean isOptional(Field field) {
-    return field != null && field.isAnnotationPresent(OptionalToken.class);
+  static boolean hasOptionalAnnotation(Field field) {
+    return field != null && (field.isAnnotationPresent(OptionalToken.class) || field.isAnnotationPresent(SkipIfFollowedBy.class));
+  }
+
+  /**
+   * Context-aware field optionality checks
+   * @param owner Context to check
+   * @param field Field to check
+   * @return true if the field should be optional in this context
+   */
+  static boolean isOptional(CompoundToken owner, Field field) {
+    try {
+      if (field.isAnnotationPresent(OptionalToken.class)) {
+        OptionalToken optionalToken = field.getAnnotation(OptionalToken.class);
+        if (optionalToken.whenFieldIsNull().length() != 0) {
+          final String fieldName = optionalToken.whenFieldIsNull();
+          Field targetField = owner.tokenType().getField(fieldName);
+          targetField.setAccessible(true);
+          return targetField.get(owner.token()) == null;
+        }
+
+        return optionalToken.whenFollowedBy().length() != 0;
+      }
+
+      return false;
+    } catch (Exception e) {
+      throw new ParserError("Failed to determine if field " + field.getName() + " should be optional", owner);
+    }
   }
 
   /**
    * @return Java representation of populated token
    */
-  X token();
+  Optional<X> token();
 
   Class<X> tokenType();
 
+  /**
+   * Called by parser to detect if this token is populated
+   * The result of this method should always be calculated
+   */
   boolean isPopulated();
   boolean isFailed();
   boolean isOptional();
@@ -87,19 +114,33 @@ public interface PartialToken<X> {
   ParserLocation end();
 
   void markOptional();
-  void onPopulated(ParserLocation end); 
+  void onPopulated(ParserLocation end);
+  String tag();
+
+  Optional<CharSequence> traceback();
 
   /** 
    * @return all characters consumed by the token and its children
    */
   CharSequence source();
 
+  Logger logger();
+
+  default void log(CharSequence message, Object... arguments) {
+    logger().debug(message.toString(), arguments);
+  }
+
+  default void error(CharSequence message, Throwable error) {
+    logger().error(message.toString(), error);
+  }
+
+
   /**
    * Called upon token failures
    */
   default void onFail() {
+    log("!!! FAILED !!!");
     invalidate();
-    parent().ifPresent(CompoundToken::onChildFailed);
   }
 
   /**
@@ -107,28 +148,38 @@ public interface PartialToken<X> {
    * @return true if the token should continue consumption, false otherwise
    */
   default boolean lookahead(CharSequence buffer) {
-    CharSequence optionalCondition = PartialToken.getOptionalCondition(targetField().orElse(null));
-    final CharSequence[] parentBuffer = new CharSequence[] { buffer };
-    boolean conditionPresent = optionalCondition != null && optionalCondition.length() > 0;
-    boolean myResult = true;
-
-    if (!isOptional() && conditionPresent) {
-      if (buffer.length() >= optionalCondition.length()) {
-        CharSequence test = buffer.subSequence(0, optionalCondition.length());
-        if (Objects.equals(test, optionalCondition)) {
-          parentBuffer[0] = buffer.subSequence(optionalCondition.length(), buffer.length());
-          markOptional();
+    log("performing lookahead");
+    return targetField()
+      .flatMap(PartialToken::getOptionalCondition)
+      .map(condition -> {
+        log("Loookahead '{}' on '{}'", condition, buffer);
+        final CharSequence[] parentBuffer = new CharSequence[] { buffer };
+        boolean myResult = true;
+        if (!isOptional()) {
+          if (buffer.length() >= condition.length()) {
+            CharSequence test = buffer.subSequence(0, condition.length());
+            if (Objects.equals(test, condition)) {
+              log("Optional condition match: '{}' == '{}'", condition, test);
+              parentBuffer[0] = buffer.subSequence(condition.length(), buffer.length());
+              markOptional();
+            }
+            myResult = false;
+          } else if (!condition.subSequence(0, buffer.length()).equals(buffer)) {
+            parentBuffer[0] = buffer;
+            myResult = false;
+          }
+        } else {
+          parentBuffer[0] = buffer.subSequence(condition.length(), buffer.length());
         }
-        myResult = false;
-      } 
-    } else if (conditionPresent) {
-      parentBuffer[0] = buffer.subSequence(optionalCondition.length(), buffer.length());
-    }
 
-    return myResult || parent()
-      // delegating lookahead call to parent
-      .flatMap(p -> p.lookahead(parentBuffer[0]) ? Optional.of(true) : Optional.empty())
-      .isPresent();
+        return myResult || isOptional() && parent()
+            .filter(p -> p.unfilledChildren() == 1)
+            .filter(p -> p.lookahead(parentBuffer[0]))
+            .isPresent();
+      }).orElseGet(() -> targetField()
+            .flatMap(field -> parent().map(parent -> isOptional(parent, field)))
+            .orElse(false)
+        );
   }
 
   default Optional<PartialToken<?>> findInTree(Predicate<PartialToken> comparator) {
@@ -138,13 +189,6 @@ public interface PartialToken<X> {
 
     return parent()
       .flatMap(parent -> parent.findInTree(comparator));
-  }
-
-  default List<PartialToken<?>> path() {
-    LinkedList<PartialToken<?>> result = new LinkedList<>();
-    parent().ifPresent(parent -> result.addAll(parent.path()));
-    result.add(this);
-    return result;
   }
 
   default int position() {
@@ -178,10 +222,6 @@ public interface PartialToken<X> {
 
   }
 
-  default PartialToken replaceCurrentToken() {
-    throw new RuntimeException("Unsupported");
-  }
-
   default void token(X token) {
     throw new RuntimeException("Unsupported");
   }
@@ -209,12 +249,15 @@ public interface PartialToken<X> {
   }
 
   default CharSequence tail(int length) {
-    CharSequence source = source();
-    if (source.length() > length) {
-      source = source.subSequence(source.length() - length, length);
-    }
-    return String.format("%" + length + "s", source);
+    return LoggerLayout.ralign(LoggerLayout.sanitize(source().toString()), length);
   }
 
+  default LinkedList<PartialToken> path() {
+    LinkedList path = parent()
+      .map(PartialToken::path)
+      .orElseGet(LinkedList::new);
+    path.add(this);
+    return path;
+  }
 }
 

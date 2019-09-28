@@ -5,31 +5,91 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 
+import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
+import com.onkiup.linker.parser.TokenGrammar;
 
-public interface CompoundToken<X extends Rule> extends PartialToken<X> {
+public interface CompoundToken<X> extends PartialToken<X> {
+
+  static CompoundToken forClass(Class<? extends Rule> type, ParserLocation position) {
+    if (position == null) {
+      position = new ParserLocation(null, 0, 0, 0);
+    }
+    if (TokenGrammar.isConcrete(type)) {
+      return new RuleToken(null, null, type, position);
+    } else {
+      return new VariantToken(null, null, type, position);
+    }
+  }
 
   void onChildPopulated();
 
   void onChildFailed();
 
-  PartialToken<?>[] children();
-  void children(PartialToken<?>[] children);
+  int unfilledChildren();
 
-  PartialToken<?> nextChild();
-  
-  CharSequence traceback();
+  int currentChild();
+  void nextChild(int newIndex);
 
   /**
-   * advances to the next child token or parent
-   * @return next token to populate or null if this is a root token and it has no further tokens to populate
+   * @return all previously created children, optionally excluding any possible future children
    */
-  default Optional<PartialToken<?>> advance() {
-    if (isPopulated() || isFailed()) {
-      return parent().map(p -> p);
+  PartialToken<?>[] children();
+
+  /**
+   * @param children an array of PartialToken objects to replace current token's children with 
+   */
+  void children(PartialToken<?>[] children);
+
+  Optional<PartialToken<?>> nextChild();
+  
+  /**
+   * Walks through token's children in reverse order removing them until the first child with alternativesLeft() > 0
+   * If no such child found, then returns full token source
+   * @return source for removed tokens
+   */
+  default Optional<CharSequence> traceback() {
+    PartialToken<?>[] children = children();
+    if (children.length == 0) {
+      invalidate();
+      onFail();
+      return Optional.empty();
+    }
+    StringBuilder result = new StringBuilder();
+    int newSize =  0;
+    for (int i = children.length - 1; i > -1; i--) {
+      PartialToken<?> child = children[i];
+      if (child == null) {
+        continue;
+      }
+      if (child instanceof CompoundToken) {
+        ((CompoundToken)child).traceback().ifPresent(returned -> result.insert(0, returned.toString()));
+      } else {
+        result.insert(0, child.source().toString());
+      }
+
+      child.invalidate();
+
+      if (child.alternativesLeft() > 0) {
+        newSize = i + 1;
+        break;
+      }
+
+      child.onFail();
     }
 
-    return Optional.of(nextChild());
+    if (newSize > 0) {
+      PartialToken<?>[] newChildren = new PartialToken<?>[newSize];
+      System.arraycopy(children, 0, newChildren, 0, newSize);
+      children(newChildren);
+      nextChild(newSize - 1);
+      log("Traced back to child #{}: {}", newSize, newChildren[newSize-1]);
+    } else {
+      invalidate();
+      onFail();
+    }
+
+    return Optional.of(result);
   }
 
   /**

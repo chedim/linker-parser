@@ -1,5 +1,6 @@
 package com.onkiup.linker.parser.token;
 
+import java.lang.reflect.Field;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -12,40 +13,41 @@ import org.slf4j.LoggerFactory;
 
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
-import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.TokenGrammar;
 import com.onkiup.linker.parser.annotation.AdjustPriority;
 import com.onkiup.linker.parser.annotation.Alternatives;
 import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 import com.onkiup.linker.parser.annotation.IgnoreVariant;
-import com.onkiup.linker.parser.token.PartialToken;
-import com.onkiup.linker.parser.util.ParserError;
+import com.onkiup.linker.parser.util.LoggerLayout;
 
-public class VariantToken<X extends Rule> implements PartialToken<X> {
+public class VariantToken<X extends Rule> extends AbstractToken<X> implements CompoundToken<X> {
 
   private static final Reflections reflections  = new Reflections(new ConfigurationBuilder()
         .setUrls(ClasspathHelper.forClassLoader(TokenGrammar.class.getClassLoader()))
         .setScanners(new SubTypesScanner(true))
     );
 
+  private static final ConcurrentHashMap<Class, Integer> dynPriorities = new ConcurrentHashMap<>();
+
   private Class<X> tokenType;
   private Class<? extends X>[] variants;
-  private PartialToken<? extends X> bestShot;
-  private int currentVariant;
+  private int nextVariant = 0;
   private PartialToken<? extends X> token;
   private String ignoreCharacters = "";
-  private PartialToken<? extends Rule> parent;
-  private boolean rotated = false;
-  private ParserLocation location;
-  private final Logger logger;
 
-  public VariantToken(PartialToken parent, Class<X> tokenType, ParserLocation location) {
+  public VariantToken(CompoundToken parent, Field field, Class<X> tokenType, ParserLocation location) {
+    super(parent, field, location);
+
     this.tokenType = tokenType;
-    this.logger = LoggerFactory.getLogger(tokenType);
-    this.parent = parent;
-    this.location = location;
     if (TokenGrammar.isConcrete(tokenType)) {
       throw new IllegalArgumentException("Variant token cannot handle concrete type " + tokenType);
+    }
+
+    if (findInTree(token -> token != this && token.tokenType() == tokenType && token.position() == position()).isPresent()) {
+      log("---||| Not descending: already selecting same Variant sub-type at this location");
+      variants = new Class[0];
+      onFail();
+      return;
     }
 
     if (tokenType.isAnnotationPresent(Alternatives.class)) {
@@ -55,12 +57,12 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
       variants = reflections.getSubTypesOf(tokenType).stream()
         .filter(type -> {
           if (type.isAnnotationPresent(IgnoreVariant.class)) {
-            logger.debug("Ignoring variant {} -- marked with @IgnoreVariant", type.getSimpleName());
+            log("Ignoring variant {} -- marked with @IgnoreVariant", type.getSimpleName());
             return false;
           }
-          boolean inTree = findInTree(token -> token != null && token.getTokenType() == type && token.location().position() == location.position()).isPresent();
+          boolean inTree = findInTree(token -> token != null && token.tokenType() == type && token.location().position() == location.position()).isPresent();
           if (inTree) {
-            logger.debug("Ignoring variant {} -- already in tree with same position ({})", type.getSimpleName(), location.position());
+            log("Ignoring variant {} -- already in tree with same position ({})", type.getSimpleName(), location.position());
             return false;
           }
           Class superClass = type.getSuperclass();
@@ -71,7 +73,7 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
                 return true;
               }
             }
-            logger.debug("Ignoring " + type + " (extends: " + superClass + ") ");
+            log("Ignoring " + type + " (extends: " + superClass + ") ");
             return false;
           }
           return true;
@@ -94,7 +96,7 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
     }
 
     if (parent != null) {
-      ignoreCharacters += parent.getIgnoredCharacters();
+      ignoreCharacters = parent.ignoredCharacters();
     }
 
     if (tokenType.isAnnotationPresent(IgnoreCharacters.class)) {
@@ -103,166 +105,104 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   }
 
   @Override
-  public Optional<StringBuilder> pushback(boolean force) {
-    StringBuilder result = null;
-    if (bestShot == null || token != null && bestShot.end().position() < token.end().position()) {
-      bestShot = token;
-    }
-    if (token != null && token.alternativesLeft() > 0) {
-      logger.info("Not pushing parent: token has alternatives: {}", token);
-      return token.pullback();
-    } else if (currentVariant < variants.length) {
-      logger.debug("Not pushing parent back: not all options exhausted for {}", this);
-      result = (StringBuilder) (token == null ? null : token.pullback().orElse(null));
-      token = null;
-    } else {
-      logger.debug("{}: Exhausted all variants on pushback, rollbacking parent token {}", this, parent);
-      result = (StringBuilder) getParent()
-        .flatMap(p -> p.pushback(false))
-        .orElse(null);
-    }
-
-    return Optional.ofNullable(result);
-  }
-
-  @Override
-  public void rotate() {
-    if (token != null) {
-      token.rotate();
-      rotated = true;
-    }
-  }
-
-  @Override
-  public void unrotate() {
-    if (token != null) {
-      token.unrotate();
-      rotated = true;
-    }
-  }
-
-  @Override
-  public Optional<StringBuilder> pullback() {
-    logger.debug("Pullback request received");
-    if (token != null) {
-      PartialToken discarded = token;
-      StringBuilder result = (StringBuilder) discarded.pullback().orElse(null);
-      token = null;
-      logger.debug("Pulled back from token: '{]}'", result);
-      return Optional.ofNullable(result);
-    }
-    logger.debug("No token present, nothing to delegate this pullback request to");
-    return Optional.empty();
-  }
-
-  @Override
-  public Optional<PartialToken> advance(boolean forcePopulate) throws SyntaxError {
-    if (rotated) {
-      logger.debug("Token was rotated, not advancing");
-      rotated = false;
-      return Optional.of(token);
-    } else if (isPopulated()) {
-      bestShot = token;
-      logger.debug("Populated {} as {}; Advancing to parent", this, token);
-      return parent == null ? Optional.empty() : parent.advance(forcePopulate);
-    } else if (token != null && token.alternativesLeft() > 0) {
-      logger.debug("{}: Advancing to child token with alternatives: {}", this, token);
-      return Optional.of(token);
-    } else if (currentVariant < variants.length) {
-      Class variant = variants[currentVariant++];
-
-      token = PartialToken.forClass(this, variant, location);
-      logger.info("Advancing to variant {}/{}: {}", currentVariant, variants.length, token);
-      return token.advance(false);
-    }
-
-    token = null;
-
-    logger.info("{}: Exhausted all variants on advance, returning to parent {}", this, parent);
-    if (parent == null) {
+  public Optional<PartialToken<?>> nextChild() {
+    if (nextVariant >= variants.length) {
       return Optional.empty();
     }
-    
-    StringBuilder data = parent.pushback(forcePopulate).orElseGet(StringBuilder::new);
-    return Optional.of(new FailedToken(parent, data, location));
-  }
-  
-  @Override
-  public boolean isPopulated() {
-    return token != null && token.isPopulated();
+    return Optional.of(token = PartialToken.forField(this, targetField().orElse(null), variants[nextVariant++], location()));
   }
 
   @Override
-  public X getToken() {
-    return token.getToken();
+  public PartialToken<?>[] children() {
+    return new PartialToken<?>[] {token};
   }
 
   @Override
-  public Class<X> getTokenType() {
+  public void children(PartialToken<?>[] children) {
+    throw new RuntimeException("Unable to set children on VariantToken");
+  }
+
+  @Override
+  public void onChildPopulated() {
+    updateDynPriority(variants[nextVariant - 1], -10);
+    onPopulated(token.end());
+  }
+
+  @Override
+  public void onChildFailed() {
+    updateDynPriority(variants[nextVariant - 1], 10);
+    if (nextVariant >= variants.length) {
+      onFail();
+    } else {
+      dropPopulated();
+    }
+  }
+
+  @Override
+  public Optional<X> token() {
+    return (Optional<X>) token.token();
+  }
+
+  @Override
+  public Class<X> tokenType() {
     return tokenType;
   }
 
-  public PartialToken resolvedAs() {
-    return token;
-  }
-
   @Override
-  public Optional<PartialToken> getParent() {
-    return Optional.ofNullable(parent);
-  }
-
-  @Override
-  public String getIgnoredCharacters() {
-    return ignoreCharacters;
+  public Optional<CharSequence> traceback() {
+    Optional<CharSequence> result = null;
+    if (token == null) {
+      return Optional.empty();
+    } else if (token instanceof CompoundToken) {
+      result = ((CompoundToken<? extends X>)token).traceback();
+      dropPopulated();
+    } else {
+      result = Optional.of(token.source());
+      dropPopulated();
+    }
+    token = null;
+    return result;
   }
 
   private int calculatePriority(Class<? extends X> type) {
-    int result = 0;
+    int result = dynPriorities.getOrDefault(type, 0);
     if (!TokenGrammar.isConcrete(type)) {
       result += 1000;
     }
 
-    if (findInTree(other -> type == other.getTokenType()).isPresent()) {
+    if (findInTree(other -> type == other.tokenType()).isPresent()) {
       result += 1000;
     }
 
     if (type.isAnnotationPresent(AdjustPriority.class)) {
       AdjustPriority adjust = type.getAnnotation(AdjustPriority.class);
       result += adjust.value();
-      logger.info("Adjusted priority by " + adjust.value()); 
+      log("Adjusted priority by " + adjust.value()); 
     }
 
-    logger.info(type.getSimpleName() + " priority " + result);
+    log(type.getSimpleName() + " priority " + result);
 
     return result;
   }
 
   @Override
-  public String toString() {
+  public String tag() {
     return "? extends " + tokenType.getName();
   }
 
   @Override
-  public int consumed() {
-    if (token == null) {
-      return 0;
-    }
-    return token.consumed();
+  public String toString() {
+    return String.format("%-50.50s || %s (%d/%d) (position: %d)", tail(50),  tag(), nextVariant, variants.length, position());
   }
 
   @Override
   public int alternativesLeft() {
-    return variants.length - currentVariant + (token == null ? 0 : token.alternativesLeft());
+    return variants.length - nextVariant + (token == null ? 0 : token.alternativesLeft());
   }
 
   @Override
   public void sortPriorities() {
     token.sortPriorities();
-  }
-
-  @Override
-  public PartialToken[] getChildren() {
-    return new PartialToken[] {token};
   }
 
   @Override
@@ -286,27 +226,6 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
   }
 
   @Override
-  public boolean rotatable() {
-    return token != null && token.rotatable();
-  }
-
-  @Override
-  public ParserLocation end() {
-    if (token == null) {
-      return location;
-    }
-    return token.end();
-  }
-
-  @Override
-  public ParserLocation location() {
-    if (token != null) {
-      return token.location();
-    }
-    return location;
-  }
-
-  @Override
   public StringBuilder source() {
     StringBuilder result = new StringBuilder();
     if (token != null) {
@@ -316,17 +235,30 @@ public class VariantToken<X extends Rule> implements PartialToken<X> {
     return result;
   }
 
-  @Override
-  public PartialToken expected() {
-    if (bestShot != null) {
-      return bestShot.expected();
-    }
-    return this;
+  public Optional<PartialToken<? extends X>> resolvedAs() {
+    return Optional.ofNullable(token);
   }
   
   @Override
-  public String tag() {
-    return "? extends " + tokenType.getSimpleName();
+  public int unfilledChildren() {
+    return (token != null && token.isPopulated()) || variants.length == 0 ? 0 : 1;
+  }
+
+  @Override
+  public int currentChild() {
+    return nextVariant - 1;
+  }
+
+  @Override
+  public void nextChild(int newIndex) {
+    throw new UnsupportedOperationException();
+  }
+
+  private static void updateDynPriority(Class target, int change) {
+    if (!dynPriorities.containsKey(target)) {
+      dynPriorities.put(target, 0);
+    }
+    dynPriorities.put(target, dynPriorities.get(target) + change);
   }
 }
 

@@ -8,9 +8,13 @@ import com.onkiup.linker.parser.annotation.CapturePattern;
 
 @FunctionalInterface
 public interface TokenMatcher extends Function<CharSequence, TokenTestResult> {
-  
+
   public static TokenMatcher forField(Field field) {
     Class type = field.getType();
+    return forField(field, type);
+  }
+  
+  public static TokenMatcher forField(Field field, Class type) {
     if (type.isArray()) {
       throw new IllegalArgumentException("Array fields should be handled as ArrayTokens");
     } else if (Rule.class.isAssignableFrom(type)) {
