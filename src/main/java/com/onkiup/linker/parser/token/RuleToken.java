@@ -7,50 +7,43 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Optional;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.function.Function;
 
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
-import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.annotation.IgnoreCharacters;
-import com.onkiup.linker.parser.annotation.OptionalToken;
+import com.onkiup.linker.parser.util.LoggerLayout;
 
-public class RuleToken<X extends Rule> implements PartialToken<X> {
+public class RuleToken<X extends Rule> extends AbstractToken<X> implements CompoundToken<X>, Rotatable {
   private X token;
   private Class<X> tokenType;
   private Field[] fields;
   private PartialToken[] values;
-  private PartialToken<? extends Rule> parent;
+  private int nextChild = 0;
   private String ignoreCharacters = ""; 
-  private int nextField;
   private boolean rotated = false;
-  private boolean failed = false;
-  private final ParserLocation location;
   private ParserLocation lastTokenEnd;
-  private final Logger logger;
 
-  public RuleToken(PartialToken<? extends Rule> parent, Class<X> type, ParserLocation location) {
+  public RuleToken(CompoundToken parent, Field field, Class<X> type, ParserLocation location) {
+    super(parent, field, location);
     this.tokenType = type;
-    this.parent = parent;
-    this.location = location;
-    this.logger = LoggerFactory.getLogger(type);
+    this.lastTokenEnd = location;
 
     try {
       this.token = type.newInstance();
+      Rule.Metadata.metadata(token, this);
     } catch (Exception e) {
       throw new IllegalArgumentException("Failed to instantiate rule token " + type, e);
     }
 
     fields = Arrays.stream(type.getDeclaredFields())
-      .filter(field -> !Modifier.isTransient(field.getModifiers()))
+      .filter(childField -> !Modifier.isTransient(childField.getModifiers()))
       .toArray(Field[]::new);
 
     values = new PartialToken[fields.length];
 
     if (parent != null) {
-      ignoreCharacters += parent.getIgnoredCharacters();
+      ignoreCharacters = parent.ignoredCharacters();
     }
 
     if (type.isAnnotationPresent(IgnoreCharacters.class)) {
@@ -63,234 +56,113 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   }
 
   @Override
-  public Optional<StringBuilder> pushback(boolean force) {
-    logger.info("Received pushback request");
-    StringBuilder result = new StringBuilder();
-    Field lastField = fields[nextField - 1];
-
-    if (force || !isOptional(nextField - 1)) {
-      int backField;
-      for (backField = nextField - 1; backField > -1; backField--) {
-        PartialToken token = values[backField];
-        Field field = fields[backField];
-
-        logger.debug("Trying to rotate");
-        if (token.rotatable()) {
-          token.rotate();
-          logger.debug("Rotated successfully");
-          rotated = true;
-          break;
-        }
-
-        if (token.alternativesLeft() > 0) {
-          logger.debug("Found alternatives at field {}", field.getName());
-          token.pushback(false).ifPresent(result::append);
-          break;
-        }
-      }
-
-      if (backField < 0) {
-        logger.debug("FAILED, pushing parent");
-        failed = true;
-        getParent()
-          .flatMap(p -> p.pushback(false))
-          .ifPresent(b -> result.append(b));
-        lastTokenEnd = location;
-        return Optional.of(result);
-      }
-
-
-      for (int i = backField + 1; i < nextField - 1; i++) {
-        Field field = fields[i];
-        logger.debug("pulling back field {}", this, tokenType.getSimpleName(), field.getName());
-        values[i].pullback().ifPresent(b -> {
-          logger.debug("pulled back '{}' from field {}", b, field.getName());
-          result.append(b);
-        });
-      }
-
-      nextField = backField + 1;
-      lastTokenEnd = values[backField].end();
-
-      return Optional.of(result);
-    } else {
-      logger.debug("Not propagating pushback call from optional field");
-      return values[nextField - 1].pullback();
-    }
-  }
-
-  @Override
-  public Optional<StringBuilder> pullback() {
-    logger.debug("Pullback request received");
-    StringBuilder result = new StringBuilder();
-    for (int i = 0; i < nextField; i++) {
-      PartialToken token = values[i];
-      if (token == null) {
-        continue;
-      }
-      Field field = fields[i];
-      logger.debug("Pulling back field {}", field.getName());
-      token.pullback().ifPresent(b -> {
-        logger.debug("Field {} return characters: '{}'", field.getName(), b);
-        result.append(b);
-      });
-      logger.debug("Pulled back field {}", field.getName());
-    }
-
-    failed = true;
-    return Optional.of(result);
-  }
-
-  @Override
-  public Optional<PartialToken> advance(boolean force) throws SyntaxError {
-
-    if (failed) {
-      logger.debug("Short-curcuiting advance request on failed token to parent");
-      return parent == null ? Optional.empty() : parent.advance(force);
-    }
-
-    if (nextField > 0) {
-      // checking if the last token was successfully populated
-      int currentField = nextField - 1;
-      Field field = fields[currentField];
-      PartialToken token = values[currentField];
-      logger.debug("Verifying results for field {}", field.getName());
-
-      if (rotated) {
-        logger.info("Last token was rotated, not advancing");
-        rotated = false;
-        return Optional.of(token);
-      } if (token != null && token.isPopulated()) {
-        set(field, token.getToken());
-        lastTokenEnd = token.end();
-      } else if (token != null && token.alternativesLeft() > 0) {
-        logger.debug("last token still has some alternatives, not advancing");
-        return Optional.of(token);
-      } else if (token != null && !isOptional(currentField)){
-        logger.debug("FAILED!");
-        failed = true;
-        if (parent == null) {
-          throw new SyntaxError("Expected " + field, this, null);
-        } else {
-          return parent == null ? Optional.empty() : parent.advance(force);
-        }
-      }
-    }
-
-    if (force && nextField < fields.length) {
-      logger.debug("Force-advancing!");
-      // checking if all unpopulated fields are optional
-      // and fast-forwarding to populate this token if possible
-      do {
-        Field field = fields[nextField];
-        if (!isOptional(nextField)) {
-          break;
-        }
-        set(field, null);
-      } while (++nextField < fields.length);
-
-      if (isPopulated()) {
-        logger.debug("Force-populated!");
-        sortPriorities();
-        Rule.Metadata.metadata(token, this);
-        return parent == null ? Optional.empty() : parent.advance(force);
-      } 
-
-      logger.debug("Force-populate failed");
-      return pushback(false).map(b -> new FailedToken(parent, b, location()));
-    }
-
-    if (nextField < fields.length && nextField > -1) {
-      Field field = fields[nextField];
-      logger.info("Populating field {}", field.getName());
-      return Optional.of(values[nextField++] = createChild(field, end()));
-    }
-
-    logger.debug("Populated");
-    sortPriorities();
-    Rule.Metadata.metadata(token, this);
-    logger.debug("Advancing parent token");
-    return parent == null ? Optional.empty() : parent.advance(force);
-  }
-
-  protected PartialToken createChild(Field field, ParserLocation location) {
-    return PartialToken.forField(this, field, location);
-  }
-
-  @Override
   public void sortPriorities() {
     if (rotatable()) {
-      PartialToken child = values[0];
-      if (child != null && child.rotatable()) {
-        int myPriority = basePriority();
-        int childPriority = child.basePriority();
-        logger.debug("Verifying priority order for tokens; parent: {} child: {}", myPriority, childPriority);
-        if (childPriority < myPriority) {
-          logger.debug("Fixing priority order");
-          unrotate();
+      if (values[0] instanceof CompoundToken) {
+        CompoundToken child = (CompoundToken) values[0];
+        if (child.rotatable()) {
+          int myPriority = basePriority();
+          int childPriority = child.basePriority();
+          log("Verifying priority order for tokens; parent: {} child: {}", myPriority, childPriority);
+          if (childPriority < myPriority) {
+            log("Fixing priority order");
+            rotateBack();
+          }
         }
       }
     }
   }
 
   @Override
-  public X getToken() {
-    return token;
+  public Optional<X> token() {
+    return Optional.ofNullable(token);
   }
 
   @Override 
-  public Class<X> getTokenType() {
+  public Class<X> tokenType() {
     return tokenType;
   }
 
   @Override
-  public Optional<PartialToken> getParent() {
-    return Optional.ofNullable(parent);
-  }
-
-  @Override
-  public boolean isPopulated() {
-    for (int i = values.length - 1; i > -1; i--) {
-      PartialToken lastToken = values[i];
-      if (lastToken != null && lastToken.isPopulated()) {
-        return true;
-      }
-      Field field = fields[i];
-      if (!isOptional(i)) {
-        logger.debug("Not populated -- field {} is not optional", field.getName());
-        return false;
-      }
-    }
-    // empty class? 
-    return true;
-  }
-
-  @Override
-  public String getIgnoredCharacters() {
+  public String ignoredCharacters() {
     return ignoreCharacters;
   }
 
+  @Override
+  public Optional<PartialToken<?>> nextChild() {
+    if (nextChild >= fields.length) {
+      log("No next child (nextChild = {}; fields = {})", nextChild, fields.length);
+      return Optional.empty();
+    }
+    if (values[nextChild] == null || values[nextChild].isFailed() || values[nextChild].isPopulated()) {
+      Field childField = fields[nextChild];
+      log("Creating partial token for child#{} at position {}", nextChild, lastTokenEnd.position());
+      values[nextChild] = PartialToken.forField(this, childField, lastTokenEnd);
+    }
+    log("nextChild#{} = {}", nextChild, values[nextChild].tag());
+    return Optional.of(values[nextChild++]);
+  }
+
+  @Override
+  public void onChildPopulated() {
+    PartialToken<?> child = values[nextChild - 1];
+
+    if (child.isMetaToken()) {
+      // woopsie...
+      addMetaToken(child.token());
+      /* TODO: handle metatokens properly   r
+      values[--nextChild] = null;
+      return;
+       */
+    }
+
+    Field field = fields[nextChild - 1];
+    set(field, child.token().orElse(null));
+    lastTokenEnd = child.end();
+    if (nextChild >= fields.length) {
+      onPopulated(lastTokenEnd);
+    }
+  }
+
+  public Field[] fields() {
+    return fields;
+  }
+
+  @Override
+  public void onChildFailed() {
+    PartialToken<?> child = values[nextChild - 1];
+    if (child.isOptional()) {
+      if (nextChild >= fields.length) {
+        log("Optional last child failed -- marking as populated");
+        onPopulated(lastTokenEnd);
+      } else {
+        log ("Ignoring optional child failure");
+      }
+    } else if (!alternativesLeft()) {
+      onFail();
+    } else {
+      log("not failing -- alternatives left");
+    }
+  }
+
   private void set(Field field, Object value) {
+    log("Trying to set field ${} to '{}'", field.getName(), LoggerLayout.sanitize(value));
     try {
       if (!Modifier.isStatic(field.getModifiers())) {
-        logger.debug("Populating field {}", field.getName(), value);
+        log("Setting field ${} to '{}'", field.getName(), LoggerLayout.sanitize(value));
         field.setAccessible(true);
         field.set(token, convert(field.getType(), value));
         try {
           token.reevaluate();
         } catch (Exception e) {
-          logger.warn("Failed to reevaluate", e);
+          error("Failed to reevaluate", e);
         }
+      } else {
+        log("NOT Setting field {} to '{}' -- the field is static", field.getName(), LoggerLayout.sanitize(value));
       }
     } catch (Exception e) {
       throw new RuntimeException("Failed to populate field " + field, e);
     }
-  }
-
-  private boolean isOptional(int position) throws SyntaxError {
-    Field field = fields[position];
-    PartialToken token = values[position];
-    return field.isAnnotationPresent(OptionalToken.class) || (token instanceof TerminalToken && ((TerminalToken)token).skipped());
   }
 
   protected <T> T convert(Class<T> into, Object what) { 
@@ -335,120 +207,184 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   }
 
   @Override
-  public String toString() {
-    return tokenType.getName();
+  public String tag() {
+    return tokenType.getName() + "(" + position() + ")";
   }
 
   @Override
-  public ParserLocation location() {
-    if (values.length > 0) {
-      for (int i = 0; i < values.length; i++) {
-        if (values[i] != null && values[i].isPopulated()) {
-          return values[i].location();
+  public void atEnd() {
+    log("Trying to force-populate...");
+    for (int i = Math.max(0, nextChild - 1); i < fields.length; i++) {
+      if (!PartialToken.isOptional(this, fields[i])) {
+        if (values[i] == null || !values[i].isPopulated()) {
+          onFail();
+          return;
         }
       }
     }
-    return location;
+    onPopulated(lastTokenEnd);
   }
 
   @Override
-  public int consumed() {
-    return lastTokenEnd == null ? 0 : lastTokenEnd.position() - position();
+  public void onPopulated(ParserLocation end) {
+    super.onPopulated(end);
+    try {
+      token.onPopulated();
+    } catch (Throwable e) {
+      error("Failed to reevaluate on population", e);
+    }
+  }
+
+  @Override
+  public void onFail() {
+    super.onFail();
+    try {
+      token.reevaluate();
+    } catch (Throwable e) {
+      error("Failed to reevaluate on failure", e);
+    }
+  }
+
+  @Override
+  public String toString() {
+    ParserLocation location = location();
+    return String.format(
+        "%50.50s || %s (%d:%d -- %d - %d)",
+        head(50),
+        tokenType.getName() + (nextChild > 0 ? ">>" + (fields[nextChild - 1].getName()) : ""),
+        location.line(),
+        location.column(),
+        location.position(),
+        end().position()
+    );
+  }
+
+  @Override
+  public ParserLocation end() {
+    return isFailed() ?
+        location() :
+        nextChild > 0 &&values[nextChild - 1] != null ?
+            values[nextChild -1].end() :
+            lastTokenEnd;
   }
 
   @Override
   public boolean rotatable() {
     if (fields.length < 3) {
-      logger.debug("Not rotatable -- not enough fields");
+      log("Not rotatable -- not enough fields");
       return false;
     }
 
     if (!this.isPopulated()) {
-      logger.debug("Not rotatable -- not populated");
+      log("Not rotatable -- not populated");
       return false;
     }
 
     Field field = fields[0];
     Class fieldType = field.getType();
     if (!fieldType.isAssignableFrom(tokenType)) {
-      logger.debug("Not rotatable -- first field is not assignable from token type");
+      log("Not rotatable -- first field is not assignable from token type");
       return false;
     }
 
     field = fields[fields.length - 1];
     fieldType = field.getType();
     if (!fieldType.isAssignableFrom(tokenType)) {
-      logger.debug("Not rotatable -- last field is not assignable from token type");
+      log("Not rotatable -- last field is not assignable from token type");
       return false;
     }
 
     return true;
   }
 
-  public Field getCurrentField() {
-    return fields[nextField > 0 ? nextField - 1 : 0];
-  }
-
   @Override
-  public void rotate() {
-    logger.info("Rotating");
+  public void rotateForth() {
+    log("Rotating");
     token.invalidate();
-    RuleToken wrap = new RuleToken(this, tokenType, location);
-    wrap.nextField = nextField;
-    nextField = 1;
-    PartialToken[] wrapValues = wrap.values;
+    RuleToken wrap = new RuleToken(this, fields[0], fields[0].getType(), location());
+    wrap.nextChild = nextChild;
+    nextChild = 1;
+    PartialToken<?>[] wrapValues = wrap.values;
     wrap.values = values;
     values = wrapValues;
     values[0] = wrap;
-    X wrapToken = (X) wrap.token;
+    X wrapToken = (X) wrap.token().orElse(null);
     wrap.token = token;
     token = wrapToken;
-    setChildren(values);
   }
 
   @Override
-  public void unrotate() {
-    logger.debug("Un-rotating");
+  public void rotateBack() {
+    log("Un-rotating");
     PartialToken firstToken = values[0];
-    PartialToken kiddo = firstToken;
-    if (kiddo instanceof VariantToken) {
-      kiddo = ((VariantToken)kiddo).resolvedAs();
+
+    CompoundToken<X> kiddo;
+    if (firstToken instanceof VariantToken) {
+      kiddo = (CompoundToken<X>)((VariantToken<? super X>)firstToken).resolvedAs().orElse(null);
+    } else {
+      kiddo = (CompoundToken<X>) firstToken;
     }
 
-    Rule childToken = (Rule) kiddo.getToken();
-    Class childTokenType = kiddo.getTokenType();
+    Rule childToken = (Rule) kiddo.token().orElse(null);
+    Class childTokenType = kiddo.tokenType();
 
     invalidate();
     kiddo.invalidate();
 
-    PartialToken[] grandChildren = kiddo.getChildren();
+    PartialToken[] grandChildren = kiddo.children();
     values[0] = grandChildren[grandChildren.length - 1];
-    set(fields[0], values[0].getToken());
-    kiddo.setToken(token);
-    kiddo.setChildren(values);
+    set(fields[0], values[0].token());
+    kiddo.token(token);
+    kiddo.children(values);
 
     values = grandChildren;
     values[values.length - 1] = kiddo;
     tokenType = null;
     token = (X) childToken;
     tokenType = (Class<X>) childTokenType;
-    setChildren(values);
-    set(fields[fields.length - 1], values[values.length - 1].getToken());
+    children(values);
+    set(fields[fields.length - 1], values[values.length - 1].token().orElse(null));
   }
 
   @Override
-  public PartialToken[] getChildren() {
+  public PartialToken[] children() {
     return values;
   }
 
   @Override
-  public void setToken(X token) {
+  public int unfilledChildren() {
+    return fields.length - nextChild;
+  }
+
+  @Override
+  public int currentChild() {
+    return nextChild - 1;
+  }
+
+  @Override
+  public void nextChild(int newIndex) {
+    log("next child set to {}/{}", newIndex, fields.length - 1);
+    nextChild = newIndex;
+  }
+
+  @Override
+  public void token(X token) {
     this.token = token;
   }
 
   @Override
-  public void setChildren(PartialToken[] children) {
-    this.values = children;
+  public void children(PartialToken[] children) {
+    lastTokenEnd = location();
+    for (int i = 0; i < values.length; i++) {
+      if (i < children.length) {
+        values[i] = children[i];
+      } else {
+        values[i] = null;
+      }
+      if (values[i] != null && values[i].isPopulated()) {
+        lastTokenEnd = values[i].end();
+      }
+    }
   }
 
   @Override
@@ -457,36 +393,37 @@ public class RuleToken<X extends Rule> implements PartialToken<X> {
   }
 
   @Override
-  public ParserLocation end() {
-    return lastTokenEnd == null ? location : lastTokenEnd;
-  }
+  public CharSequence dumpTree(int offset, CharSequence prefix, CharSequence childPrefix, Function<PartialToken<?>, CharSequence> formatter) {
+    final int childOffset = offset + 1;
+    String insideFormat = "%s ├─%s %s : %s";
+    String lastFormat = "%s └─%s %s : %s";
 
-  @Override
-  public StringBuilder source() {
-    StringBuilder result = new StringBuilder();
-    for (int i = 0; i < values.length; i++) {
-      if (values[i] != null) {
-        result.append(values[i].source());
+    StringBuilder result = new StringBuilder(super.dumpTree(offset, prefix, childPrefix, formatter));
+    if (!isPopulated()) {
+      for (int i = 0; i <= nextChild; i++) {
+        if (i < fields.length) {
+          boolean nextToLast = i == fields.length - 2 || i == nextChild - 1;
+          boolean last = i == fields.length - 1 || i == nextChild || (nextToLast && values[i + 1] == null);
+          String format = i == nextChild ? lastFormat : insideFormat;
+          PartialToken<?> child = values[i];
+          String fieldName = fields[i].getName();
+          if (child == null) {
+            result.append(String.format(format, childPrefix, "[N]", fieldName, null));
+            result.append('\n');
+          } else if (child.isFailed()) {
+            result.append(child.dumpTree(childOffset, String.format(format, childPrefix, "[F]", fieldName, ""),
+                childPrefix + " │", formatter));
+          } else if (child.isPopulated()) {
+            result.append(child.dumpTree(childOffset, String.format(format, childPrefix, "[+]", fieldName, ""),
+                childPrefix + " │", formatter));
+          } else {
+            result.append(child.dumpTree(childOffset, String.format(format, childPrefix, ">>>", fieldName, ""),
+                childPrefix + " │", formatter));
+          }
+        }
       }
     }
     return result;
-  }
-
-  @Override
-  public PartialToken expected() {
-
-    for (int field = nextField; field > 0; field--) {
-      if (field < fields.length && !isOptional(field) && values[field] != null) {
-        return values[field].expected();
-      }
-    }
-
-    return this;
-  }
-
-  @Override
-  public String tag() {
-    return tokenType.getSimpleName();
   }
 }
 

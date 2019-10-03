@@ -1,38 +1,30 @@
 package com.onkiup.linker.parser.token;
 
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Optional;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.onkiup.linker.parser.ParserLocation;
-import com.onkiup.linker.parser.Rule;
-import com.onkiup.linker.parser.SyntaxError;
 import com.onkiup.linker.parser.annotation.CaptureLimit;
+import com.onkiup.linker.parser.util.LoggerLayout;
 import com.onkiup.linker.parser.util.ParserError;
 
-public class CollectionToken<X> implements PartialToken<X> {
-  private PartialToken<? extends Rule> parent;
-  private Field field;
+public class CollectionToken<X> extends AbstractToken<X> implements CompoundToken<X> {
   private Class<X> fieldType;
   private Class memberType;
   private LinkedList<PartialToken> children = new LinkedList<>();
-  private PartialToken current;
   private CaptureLimit captureLimit;
-  private boolean populated = false;
-  private final ParserLocation location;
   private ParserLocation lastTokenEnd;
-  private final Logger logger;
+  private int nextMember = 0;
 
-  public CollectionToken(PartialToken<? extends Rule> parent, Field field, ParserLocation location) {
-    this.parent = parent;
-    this.field = field;
-    logger = LoggerFactory.getLogger(field.getDeclaringClass().getName() + "$" + field.getName() + "[]");
-    this.location = location;
+  public CollectionToken(CompoundToken parent, Field field, Class<X> tokenType, ParserLocation location) {
+    super(parent, field, location);
     lastTokenEnd = location;
-    this.fieldType = (Class<X>) field.getType(); 
+    this.fieldType = tokenType;
     this.memberType = fieldType.getComponentType();
     if (field.isAnnotationPresent(CaptureLimit.class)) {
       captureLimit = field.getAnnotation(CaptureLimit.class);
@@ -40,154 +32,196 @@ public class CollectionToken<X> implements PartialToken<X> {
   }
 
   @Override
-  public Optional<StringBuilder> pushback(boolean force) {
-    int size = children.size();
-
-    if (captureLimit != null && size <= captureLimit.min()) {
-      logger.debug("failed to satisfy all requirements --> passing rollback call to the parent");
-      return parent.pushback(false);
+  public void onChildPopulated() {
+    if (children.size() == 0) {
+      throw new RuntimeException("OnChildPopulated called when there is no child!");
     }
-
-    logger.info("Pulling back failed (last) member {} and marking collection token as populated", current);
-    populated = true;
-    PartialToken lastMember = current;
-    return lastMember.pullback();
+    PartialToken<?> current = children.peekLast();
+    if (current.isMetaToken()) {
+      addMetaToken(current.token());
+      children.pollLast();
+      return;
+    }
+    log("Populated collection token #{}: {}", children.size(), current.tag());
+    lastTokenEnd = current.end();
+    if (captureLimit != null && children.size() >= captureLimit.max()) {
+      onPopulated(lastTokenEnd);
+    }
   }
 
   @Override
-  public Optional<StringBuilder> pullback() {
-    logger.debug("received pullback request, propagating to children");
-    StringBuilder result = new StringBuilder();
-    children.stream()
-      .map(PartialToken::pullback)
-      .forEach(o -> o.ifPresent(result::append));
-
-    logger.debug("pullback result: '{}'", result);
-    return Optional.of(result);
-  }
-
-  @Override
-  public Optional<PartialToken> advance(boolean force) throws SyntaxError {
-    logger.debug("received advance request");
-    int size = children.size();
-    if (current != null && !current.isPopulated()) {
-      logger.debug("Last collection token failed");
-      if (captureLimit == null || (size >= captureLimit.min() || size <= captureLimit.max())) {
-        logger.debug("Marking collection as populated");
-        populated = true;
-      }
-    } else if (current != null) {
-      children.add(current);
-      lastTokenEnd = current.end();
-      populated = (captureLimit == null) ? false : ++size == captureLimit.max();
-      logger.info("Consumed token {}; populated: {}", current.getTokenType().getSimpleName(), populated);
-    }
-
-    if (force) {
-      logger.info("Force-populating collection token");
-      populated = true;
-    }
-
-    if (populated) {
-      return parent == null ? Optional.empty() : parent.advance(force);
+  public void atEnd() {
+    log("Force-populating...");
+    if (captureLimit == null || children.size() >= captureLimit.min()) {
+      onPopulated(lastTokenEnd);
     } else {
-      current = PartialToken.forClass(this, memberType, lastTokenEnd);
-      logger.debug("Advancing to next collection member");
-      return Optional.of(current);
+      onFail();
     }
   }
 
   @Override
-  public String getIgnoredCharacters() {
-    if (parent != null) {
-      return parent.getIgnoredCharacters();
+  public void onChildFailed() {
+    if (children.size() == 0) {
+      throw new ParserError("No child is currently populated yet onChildFailed was called", this);
     }
-    return "";
-  }
 
-  @Override
-  public Optional<PartialToken> getParent() {
-    return Optional.ofNullable(parent);
-  }
-
-  @Override
-  public boolean isPopulated() {
-    if (captureLimit != null) {
-      int size = children.size();
-      logger.debug("Testing if collection is populated (size: {}; min: {})", size, captureLimit.min());
-      return size >= captureLimit.min();
+    children.pollLast();
+    lastTokenEnd = children.size() > 0 ? children.peekLast().end() : location();
+    int size = children.size();
+    if (captureLimit != null && size < captureLimit.min()) {
+      log("Child failed and collection is underpopulated -- failing the whole collection");
+      if (!alternativesLeft()) {
+        onFail();
+      } else {
+        log("Not failing -- have some alternatives left");
+      }
+    } else {
+      log("Child failed and collection has enough elements (or no lower limit) -- marking collection as populated");
+      onPopulated(children.size() == 0 ? location() : lastTokenEnd);
     }
-    return populated;
   }
 
   @Override
-  public Class<X> getTokenType () {
+  public Class<X> tokenType () {
     return fieldType;
   }
 
   @Override
-  public X getToken() {
-    if (!populated) {
-      throw new IllegalStateException("Not populated");
+  public Optional<X> token() {
+    if (!isPopulated()) {
+      return Optional.empty();
     }
 
-    return (X) children.stream()
-      .map(PartialToken::getToken)
-      .toArray();
+    return Optional.of((X) children.stream()
+      .map(PartialToken::token)
+        .map(o -> o.orElse(null))
+      .toArray(size -> newArray(memberType, size)));
+  }
+
+  private static final <M> M[] newArray(Class<M> memberType, int size) {
+    return (M[]) Array.newInstance(memberType, size);
   }
 
   @Override
-  public int consumed() {
-    return lastTokenEnd == null ? 0 : lastTokenEnd.position() - position();
+  public String tag() {
+    return fieldType.getName() + "[]("+position()+")";
   }
 
   @Override
   public String toString() {
-    return memberType.getName() + "[" + children.size() + "]";
-  }
-
-  @Override
-  public ParserLocation location() {
-    if (children.size() > 0) {
-      return children.get(0).location();
-    }
-    return location;
+    ParserLocation location = location();
+    return String.format(
+        "%50.50s || %s[%d] (%d:%d -- %d - %d)",
+        head(50),
+        fieldType.getName(),
+        children.size(),
+        location.line(),
+        location.column(),
+        location.position(),
+        end().position()
+    );
   }
 
   @Override
   public ParserLocation end() {
-    return lastTokenEnd == null ? location : lastTokenEnd;
+    return isFailed() ? location() : children.size() > 0 ? children.peekLast().end() : lastTokenEnd;
   }
 
   @Override
-  public StringBuilder source() {
-    StringBuilder result = new StringBuilder();
-    
-    for (int i = 0; i < children.size(); i++) {
-      result.append(children.get(i).source());
+  public Optional<PartialToken<?>> nextChild() {
+    if (isFailed() || isPopulated()) {
+      return Optional.empty();
+    }
+
+    PartialToken<?> current = null;
+    if (captureLimit == null || captureLimit.max() > children.size()) {
+      if (nextMember == children.size()) {
+        log("creating partial token for member#{}", children.size());
+        current = PartialToken.forField(this, targetField().orElse(null), memberType, lastTokenEnd);
+        children.add(current);
+      } else if (nextMember < children.size()) {
+        current = children.get(nextMember);
+      }
+      nextMember++;
+      log("nextChild = [{}]{}", children.size(), current.tag());
+      return Optional.of(current);
+    }
+    return Optional.empty();
+  }
+
+  @Override
+  public PartialToken[] children() {
+    return children.toArray(new PartialToken[children.size()]);
+  }
+
+  @Override
+  public int unfilledChildren() {
+    if (isPopulated()) {
+      return 0;
+    }
+    if (captureLimit == null) {
+      return 1;
+    }
+
+    return captureLimit.max() - children.size();
+  }
+
+  @Override
+  public int currentChild() {
+    return children.size() - 1;
+  }
+
+  @Override
+  public void nextChild(int newIndex) {
+    nextMember = newIndex;
+    log("next child set to {}/{} ({})", newIndex, children.size(), children.get(newIndex));
+  }
+
+  @Override
+  public void children(PartialToken<?>[] children) {
+    this.children = new LinkedList<>(Arrays.asList(children));
+  }
+
+  @Override
+  public boolean alternativesLeft() {
+    for (int i = children.size() - 1; i > -1; i--) {
+      PartialToken<?> child = children.get(i);
+      log("getting alternatives from [{}]{}", i, child.tag());
+      if (child.alternativesLeft()) {
+        log("found alternatives at [{}]{}", i, child.tag());
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  @Override
+  public CharSequence dumpTree(int offset, CharSequence prefix, CharSequence childPrefix, Function<PartialToken<?>, CharSequence> formatter) {
+    final int childOffset = offset + 1;
+    String insideFormat = "%s ├─%s #%s : %s";
+    String lastFormat = "%s └─%s #%s : %s";
+    StringBuilder result = new StringBuilder(super.dumpTree(offset, prefix, childPrefix, formatter));
+    if (!isPopulated()) {
+      int last = children.size() - 1;
+      for (int i = 0; i < children.size(); i++) {
+        PartialToken<?> child = children.get(i);
+        String format = i == last ? lastFormat : insideFormat;
+        if (child == null) {
+          result.append(String.format(format, childPrefix, "[N]", i, null));
+          result.append('\n');
+        } else if (child.isPopulated()) {
+          result.append(child.dumpTree(childOffset, String.format(format, childPrefix, "[+]", i, ""),
+              childPrefix + " │", formatter));
+        } else if (child.isFailed()) {
+          result.append(child.dumpTree(childOffset, String.format(format, childPrefix, "[F]", i, ""),
+              childPrefix + " │", formatter));
+        } else {
+          result.append(child.dumpTree(childOffset, String.format(format, childPrefix, ">>>", i, ""),
+              childPrefix + " │", formatter));
+        }
+      }
     }
     return result;
-  }
-
-  @Override
-  public PartialToken[] getChildren() {
-    PartialToken[] result = new PartialToken[children.size()];
-    return children.toArray(result);
-  }
-
-
-  @Override
-  public PartialToken expected() {
-    return current.expected();
-  }
-  
-  @Override
-  public String tag() {
-    return "Collection<" + memberType.getSimpleName() + ">";
-  }
-
-  @Override
-  public int alternativesLeft() {
-    return 0;
   }
 }

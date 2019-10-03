@@ -18,7 +18,7 @@ public class NumberMatcher implements TokenMatcher {
   }
 
   @Override
-  public TokenTestResult apply(StringBuilder buffer) {
+  public TokenTestResult apply(CharSequence buffer) {
     try {
       pattern.newInstance(buffer.toString());
       return TestResult.matchContinue(buffer.length(), buffer.toString());
@@ -35,7 +35,7 @@ public class NumberMatcher implements TokenMatcher {
         try {
           char drop = buffer.charAt(buffer.length() - 1);
           if (drop != '.') {
-            Number token = pattern.newInstance(buffer.substring(0, buffer.length() - 1));
+            Number token = pattern.newInstance(buffer.subSequence(0, buffer.length()));
             return TestResult.match(buffer.length() - 1, token);
           } 
         } catch (InvocationTargetException nfe2) {

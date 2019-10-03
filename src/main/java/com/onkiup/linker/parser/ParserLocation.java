@@ -1,5 +1,7 @@
 package com.onkiup.linker.parser;
 
+import java.util.Objects;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,6 +12,21 @@ public class ParserLocation {
 
   private final int line, column, position;
   private final String name;
+
+  public static ParserLocation endOf(CharSequence text) {
+    int lines = 0;
+    int column = 0;
+    for (int i = 0; i < text.length(); i++) {
+      if (text.charAt(i) == '\n') {
+        lines++;
+        column = 0;
+      } else {
+        column++;
+      }
+    }
+
+    return new ParserLocation(null, text.length(), lines, column);
+  }
 
   public ParserLocation(String name, int position, int line, int column) {
     if (position < 0) {
@@ -74,6 +91,29 @@ public class ParserLocation {
     ParserLocation result = new ParserLocation(name, position, line, column);
     logger.debug("Advanced from {} to {} using chars: '{}'", this, result, source);
     return result;
+  }
+
+  public ParserLocation advance(char character) {
+    if (character < 0) {
+      return this;
+    }
+    int column = this.column + 1;
+    int line = this.line;
+    if (character == '\n') {
+      line++;
+      column = 0;
+    }
+    return new ParserLocation(name, position + 1, line, column);
+  }
+
+  public ParserLocation add(ParserLocation another) {
+    if (another.name() != null && !Objects.equals(name(), another.name())) {
+      throw new IllegalArgumentException("Unable to add parser location with a different name");
+    }
+    int anotherLines = another.line();
+    int resultLine = line + anotherLines;
+    int resultColumn = anotherLines == 0 ? column + another.column() : another.column();
+    return new ParserLocation(name, position + another.position(), resultLine, resultColumn);
   }
 }
 

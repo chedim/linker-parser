@@ -35,22 +35,21 @@ public interface Rule {
   }
 
   /**
-   * @returns parent token or null if this token is root token
+   * @return parent token or null if this token is root token
    */
   default <R extends Rule> Optional<R> parent() {
-    PartialToken meta = Metadata.metadata(this).get();
-    do {
-      meta = (PartialToken) meta.getParent().orElse(null);
-    } while (meta != null && !(meta instanceof RuleToken));
-
-    if (meta != null) {
-      return Optional.of((R) meta.getToken());
-    }
-    return Optional.empty();
+    return Metadata.metadata(this)
+      .map(meta -> {
+        do {
+          meta = (PartialToken) meta.parent().orElse(null);
+        } while (!(meta instanceof RuleToken));
+        return meta;
+      })
+      .flatMap(PartialToken::token);
   }
 
   /**
-   * @returns true if this token was successfully populated; false if parser is still working on some of the token's fields
+   * @return true if this token was successfully populated; false if parser is still working on some of the token's fields
    */
   default boolean populated() {
     return Metadata.metadata(this)
@@ -58,12 +57,16 @@ public interface Rule {
       .orElse(false);
   }
 
-  default PartialToken metadata() {
-    return Metadata.metadata(this).orElseThrow(() -> new RuntimeException("Failed to obtain metadata for " + Rule.this));
+  default void onPopulated() {
+
+  }
+
+  default Optional<PartialToken> metadata() {
+    return Metadata.metadata(this);
   }
 
   default ParserLocation location() {
-    return metadata().location();
+    return metadata().map(PartialToken::location).orElse(null);
   }
 
   /**
@@ -80,6 +83,10 @@ public interface Rule {
    */
   default void invalidate() {
   
+  }
+
+  default CharSequence source() {
+    return metadata().map(PartialToken::source).orElse(null);
   }
 }
 

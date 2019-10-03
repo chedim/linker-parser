@@ -1,11 +1,11 @@
 package com.onkiup.linker.parser;
 
-public class TokenTestResult {
+public class TokenTestResult<X> {
   private TestResult result;
-  private Object token;
+  private X token;
   private int length;
 
-  protected TokenTestResult(TestResult result, int length, Object token) {
+  protected TokenTestResult(TestResult result, int length, X token) {
     this.result = result;
     this.length = length;
     this.token = token;
@@ -23,7 +23,7 @@ public class TokenTestResult {
     return length;
   }
 
-  public Object getToken() {
+  public X getToken() {
     return token;
   }
 
