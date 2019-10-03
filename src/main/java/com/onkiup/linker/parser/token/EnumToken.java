@@ -79,6 +79,11 @@ public class EnumToken<X extends Enum & Rule> extends AbstractToken<X> implement
   }
 
   @Override
+  public void atEnd() {
+
+  }
+
+  @Override
   public void onConsumeSuccess(Object value) {
     token = (X) value;
     this.populated = true;

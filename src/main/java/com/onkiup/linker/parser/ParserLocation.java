@@ -93,6 +93,19 @@ public class ParserLocation {
     return result;
   }
 
+  public ParserLocation advance(char character) {
+    if (character < 0) {
+      return this;
+    }
+    int column = this.column + 1;
+    int line = this.line;
+    if (character == '\n') {
+      line++;
+      column = 0;
+    }
+    return new ParserLocation(name, position + 1, line, column);
+  }
+
   public ParserLocation add(ParserLocation another) {
     if (another.name() != null && !Objects.equals(name(), another.name())) {
       throw new IllegalArgumentException("Unable to add parser location with a different name");

@@ -4,67 +4,61 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
+import javax.swing.text.html.parser.Parser;
+
+import org.apache.log4j.Layout;
+
 import com.onkiup.linker.parser.ParserLocation;
+import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.TestResult;
 import com.onkiup.linker.parser.TokenMatcher;
 import com.onkiup.linker.parser.TokenTestResult;
+import com.onkiup.linker.parser.util.LoggerLayout;
 import com.onkiup.linker.parser.util.ParserError;
 
 public interface ConsumingToken<X> extends PartialToken<X> {
 
   default void setTokenMatcher(TokenMatcher matcher) {
-    CharSequence ignoredCharacters = parent().map(CompoundToken::ignoredCharacters).orElse(null);
-    ConsumptionState.create(this, ignoredCharacters, matcher);
+    ConsumptionState.create(this, matcher);
   }
 
   void onConsumeSuccess(Object token);
 
   /**
    * Attempts to consume next character
-   * @return null if character was consumed, otherwise returns a CharSequence with failed characters
+   * @return true if consumption should continue
    */
-  default Optional<CharSequence> consume(char character) {
+  default boolean consume() {
     ConsumptionState consumption = ConsumptionState.of(this).orElseThrow(() -> new ParserError("No consumption state found (call ConsumingToken::setTokenMatcher to create it first)", this));
 
-    consumption.consume(character);
-
-    if (consumption.failed()) {
-      if (!lookahead(consumption.buffer())) {
-        log("Lokahead complete");
-        onFail();
-        CharSequence consumed = consumption.consumed();
-        consumption.clear();
-        return Optional.of(consumed);
-      }
-      log("performing lookahead so, reporting successfull consumption (despite that the token has already failed)");
-      return Optional.empty();
-    }
+    boolean doNext = consumption.consume();
 
     TokenTestResult result = consumption.test();
 
     if (result.isFailed()) {
       log("failed; switching to lookahead mode");
       consumption.setFailed();
-      return Optional.empty();
+      consumption.lookahead();
+      consumption.clear();
+      onFail();
+      return false;
     } else if (result.isMatch()) {
-      int tokenLength = result.getTokenLength();
-      CharSequence excess = consumption.trim(tokenLength);
-      log("matched");
+      consumption.trim(result.getTokenLength());
+      log("matched at position {}", consumption.end().position());
       onConsumeSuccess(result.getToken());
-      onPopulated(location().add(consumption.end()));
-      parent()
-          .filter(p -> p.unfilledChildren() == 0)
-          .map(p -> p.lookahead(excess));
-      return Optional.of(excess);
+      onPopulated(consumption.end());
+      return false;
     }
 
     if (result.isMatchContinue()) {
       log("matched; continuing...");
       onConsumeSuccess(result.getToken());
       onPopulated(consumption.end());
+    } else if (consumption.hitEnd()) {
+      onFail();
     }
 
-    return Optional.empty();
+    return doNext;
   }
 
   @Override
@@ -74,28 +68,20 @@ public interface ConsumingToken<X> extends PartialToken<X> {
   }
 
   @Override
-  default Optional<CharSequence> traceback() {
-    return ConsumptionState.of(this).map(ConsumptionState::consumed)
-        .filter(consumed -> consumed.length() > 0);
-  }
-
-  @Override
-  default CharSequence source() {
-    if (isFailed()) {
-      return "";
-    }
-    return ConsumptionState.of(this).map(ConsumptionState::consumed).orElse("");
+  default void atEnd() {
+    parent().ifPresent(CompoundToken::atEnd);
   }
 
   class ConsumptionState {
     private static final ConcurrentHashMap<ConsumingToken, ConsumptionState> states = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<PartialToken, CharSequence> buffers = new ConcurrentHashMap<>();
 
     private static synchronized Optional<ConsumptionState> of(ConsumingToken token) {
       return Optional.ofNullable(states.get(token));
     }
 
-    private static void create(ConsumingToken token, CharSequence ignoredCharacters, Function<CharSequence, TokenTestResult> tester) {
-      states.put(token, new ConsumptionState(ignoredCharacters, tester));
+    private static void create(ConsumingToken token, Function<CharSequence, TokenTestResult> tester) {
+      states.put(token, new ConsumptionState(token, tester));
     }
 
     static void inject(ConsumingToken token, ConsumptionState state) {
@@ -106,53 +92,81 @@ public interface ConsumingToken<X> extends PartialToken<X> {
       states.remove(token);
     }
 
-    private final StringBuilder buffer = new StringBuilder();
-    private final StringBuilder consumed = new StringBuilder();
-    private final CharSequence ignoredCharacters;
+    private final String ignoredCharacters;
     private final Function<CharSequence, TokenTestResult> tester;
-    private ParserLocation end;
+    private ParserLocation start, end, ignored;
     private boolean failed;
+    private ConsumingToken token;
+    private CharSequence buffer;
+    private boolean hitEnd = false;
 
-    private ConsumptionState(CharSequence ignoredCharacters, Function<CharSequence, TokenTestResult> tester) {
-      this.ignoredCharacters = ignoredCharacters;
+    private ConsumptionState(ConsumingToken<?> token, Function<CharSequence, TokenTestResult> tester) {
+      this.token = token;
+      this.ignoredCharacters = token.ignoredCharacters();
       this.tester = tester;
+      this.start = this.end = this.ignored = token.location();
+      this.buffer = rootBuffer(token.root()).orElseThrow(() ->
+          new RuntimeException("No root buffer registered for token " + token));
     }
 
-    ConsumptionState(CharSequence buffer, CharSequence consumed) {
+    ConsumptionState(ParserLocation start, ParserLocation ignored, ParserLocation end) {
       this.ignoredCharacters = "";
       this.tester = null;
-      this.buffer.append(buffer);
-      this.consumed.append(consumed);
+      this.start = start;
+      this.end = end;
+      this.ignored = ignored;
+    }
+
+    public static <X extends Rule> void rootBuffer(PartialToken<X> rootToken, CharSequence buffer) {
+      buffers.put(rootToken, buffer);
+    }
+
+    public static Optional<CharSequence> rootBuffer(PartialToken<?> root) {
+      return Optional.ofNullable(buffers.get(root));
     }
 
     protected CharSequence buffer() {
-      return buffer.subSequence(0, buffer.length());
+      return buffer.subSequence(ignored.position(), end.position());
     }
 
     protected CharSequence consumed() {
-      return consumed.subSequence(0, consumed.length());
+      return buffer.subSequence(start.position(), end.position());
     }
 
     protected ParserLocation end() {
-      return ParserLocation.endOf(consumed());
+      return end;
     }
 
     private boolean ignored(int character) {
       return ignoredCharacters != null && ignoredCharacters.chars().anyMatch(ignored -> ignored == character);
     }
 
-    private void consume(char character) {
-      consumed.append(character);
-      if (buffer.length() > 0 || !ignored(character)) {
-        buffer.append(character);
+    private boolean consume() {
+      if (end.position() < buffer.length()) {
+        char consumed = buffer.charAt(end.position());
+        end = end.advance(consumed);
+        if (end.position() - ignored.position() < 2 && ignored(consumed)) {
+          ignored = ignored.advance(consumed);
+          token.log("Ignored '{}' ({} - {} - {})", LoggerLayout.sanitize(consumed), start.position(), ignored.position(), end.position());
+          return true;
+        }
+        token.log("Consumed '{}' ({} - {} - {})", LoggerLayout.sanitize(consumed), start.position(), ignored.position(), end.position());
+        return true;
+      } else {
+        hitEnd = true;
       }
+      return false;
+    }
+
+    private boolean hitEnd() {
+      return hitEnd;
     }
 
     private TokenTestResult test() {
-      if (buffer.length() == 0) {
+      if (end.position() - ignored.position() == 0) {
         return TestResult.continueNoMatch();
       }
-      return tester.apply(buffer);
+      return tester.apply(buffer());
     }
 
     private void setFailed() {
@@ -163,17 +177,20 @@ public interface ConsumingToken<X> extends PartialToken<X> {
       return failed;
     }
 
-    private CharSequence trim(int size) {
-      CharSequence trimmed = buffer.subSequence(size, buffer.length());
-      buffer.delete(size, buffer.length());
-      consumed.delete(consumed.length() - trimmed.length(), consumed.length());
-      return trimmed;
+    private void trim(int size) {
+      end = ignored.advance(buffer().subSequence(0, size));
     }
 
     private void clear() {
-      consumed.delete(0, consumed.length());
-      buffer.delete(0, buffer.length());
+      end = ignored = start;
     }
+
+    private void lookahead() {
+      token.lookahead(buffer, ignored.position());
+      token.log("Lookahead complete");
+      token.onFail();
+    }
+
   }
 }
 

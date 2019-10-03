@@ -23,7 +23,7 @@ public class TerminalToken extends AbstractToken<String> implements ConsumingTok
 
   public TerminalToken(CompoundToken parent, Field field, Class tokenType, ParserLocation location) {
     super(parent, field, location);
-    this.matcher = TokenMatcher.forField(field, tokenType);
+    this.matcher = TokenMatcher.forField(parent, field, tokenType);
 
     this.setTokenMatcher(matcher);
   }
@@ -43,6 +43,5 @@ public class TerminalToken extends AbstractToken<String> implements ConsumingTok
   public Class<String> tokenType() {
     return String.class;
   }
-
 }
 

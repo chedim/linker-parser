@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.function.Function;
 
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
@@ -30,6 +31,7 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
 
     try {
       this.token = type.newInstance();
+      Rule.Metadata.metadata(token, this);
     } catch (Exception e) {
       throw new IllegalArgumentException("Failed to instantiate rule token " + type, e);
     }
@@ -73,10 +75,7 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
 
   @Override
   public Optional<X> token() {
-    return Optional.ofNullable(token).map(token -> {
-      Rule.Metadata.metadata(token, this);
-      return token;
-    });
+    return Optional.ofNullable(token);
   }
 
   @Override 
@@ -92,20 +91,31 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
   @Override
   public Optional<PartialToken<?>> nextChild() {
     if (nextChild >= fields.length) {
+      log("No next child (nextChild = {}; fields = {})", nextChild, fields.length);
       return Optional.empty();
     }
     if (values[nextChild] == null || values[nextChild].isFailed() || values[nextChild].isPopulated()) {
       Field childField = fields[nextChild];
-      PartialToken<?> result = PartialToken.forField(this, childField, lastTokenEnd);
-      return Optional.of(values[nextChild++] = result);
-    } else {
-      return Optional.of(values[nextChild++]);
+      log("Creating partial token for child#{} at position {}", nextChild, lastTokenEnd.position());
+      values[nextChild] = PartialToken.forField(this, childField, lastTokenEnd);
     }
+    log("nextChild#{} = {}", nextChild, values[nextChild].tag());
+    return Optional.of(values[nextChild++]);
   }
 
   @Override
   public void onChildPopulated() {
     PartialToken<?> child = values[nextChild - 1];
+
+    if (child.isMetaToken()) {
+      // woopsie...
+      addMetaToken(child.token());
+      /* TODO: handle metatokens properly   r
+      values[--nextChild] = null;
+      return;
+       */
+    }
+
     Field field = fields[nextChild - 1];
     set(field, child.token().orElse(null));
     lastTokenEnd = child.end();
@@ -123,10 +133,15 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
     PartialToken<?> child = values[nextChild - 1];
     if (child.isOptional()) {
       if (nextChild >= fields.length) {
+        log("Optional last child failed -- marking as populated");
         onPopulated(lastTokenEnd);
+      } else {
+        log ("Ignoring optional child failure");
       }
-    } else if (alternativesLeft() == 0) {
+    } else if (!alternativesLeft()) {
       onFail();
+    } else {
+      log("not failing -- alternatives left");
     }
   }
 
@@ -193,12 +208,64 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
 
   @Override
   public String tag() {
-    return tokenType.getName();
+    return tokenType.getName() + "(" + position() + ")";
+  }
+
+  @Override
+  public void atEnd() {
+    log("Trying to force-populate...");
+    for (int i = Math.max(0, nextChild - 1); i < fields.length; i++) {
+      if (!PartialToken.isOptional(this, fields[i])) {
+        if (values[i] == null || !values[i].isPopulated()) {
+          onFail();
+          return;
+        }
+      }
+    }
+    onPopulated(lastTokenEnd);
+  }
+
+  @Override
+  public void onPopulated(ParserLocation end) {
+    super.onPopulated(end);
+    try {
+      token.onPopulated();
+    } catch (Throwable e) {
+      error("Failed to reevaluate on population", e);
+    }
+  }
+
+  @Override
+  public void onFail() {
+    super.onFail();
+    try {
+      token.reevaluate();
+    } catch (Throwable e) {
+      error("Failed to reevaluate on failure", e);
+    }
   }
 
   @Override
   public String toString() {
-    return String.format("%s || %s (positoin: %d)", tail(50), tokenType.getName() + (nextChild > - 1 ? "$" + (fields[nextChild - 1].getName()) : ""), position());
+    ParserLocation location = location();
+    return String.format(
+        "%50.50s || %s (%d:%d -- %d - %d)",
+        head(50),
+        tokenType.getName() + (nextChild > 0 ? ">>" + (fields[nextChild - 1].getName()) : ""),
+        location.line(),
+        location.column(),
+        location.position(),
+        end().position()
+    );
+  }
+
+  @Override
+  public ParserLocation end() {
+    return isFailed() ?
+        location() :
+        nextChild > 0 &&values[nextChild - 1] != null ?
+            values[nextChild -1].end() :
+            lastTokenEnd;
   }
 
   @Override
@@ -296,6 +363,7 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
 
   @Override
   public void nextChild(int newIndex) {
+    log("next child set to {}/{}", newIndex, fields.length - 1);
     nextChild = newIndex;
   }
 
@@ -325,15 +393,37 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
   }
 
   @Override
-  public StringBuilder source() {
-    StringBuilder result = new StringBuilder();
-    for (int i = 0; i < values.length; i++) {
-      if (values[i] != null) {
-        result.append(values[i].source());
+  public CharSequence dumpTree(int offset, CharSequence prefix, CharSequence childPrefix, Function<PartialToken<?>, CharSequence> formatter) {
+    final int childOffset = offset + 1;
+    String insideFormat = "%s ├─%s %s : %s";
+    String lastFormat = "%s └─%s %s : %s";
+
+    StringBuilder result = new StringBuilder(super.dumpTree(offset, prefix, childPrefix, formatter));
+    if (!isPopulated()) {
+      for (int i = 0; i <= nextChild; i++) {
+        if (i < fields.length) {
+          boolean nextToLast = i == fields.length - 2 || i == nextChild - 1;
+          boolean last = i == fields.length - 1 || i == nextChild || (nextToLast && values[i + 1] == null);
+          String format = i == nextChild ? lastFormat : insideFormat;
+          PartialToken<?> child = values[i];
+          String fieldName = fields[i].getName();
+          if (child == null) {
+            result.append(String.format(format, childPrefix, "[N]", fieldName, null));
+            result.append('\n');
+          } else if (child.isFailed()) {
+            result.append(child.dumpTree(childOffset, String.format(format, childPrefix, "[F]", fieldName, ""),
+                childPrefix + " │", formatter));
+          } else if (child.isPopulated()) {
+            result.append(child.dumpTree(childOffset, String.format(format, childPrefix, "[+]", fieldName, ""),
+                childPrefix + " │", formatter));
+          } else {
+            result.append(child.dumpTree(childOffset, String.format(format, childPrefix, ">>>", fieldName, ""),
+                childPrefix + " │", formatter));
+          }
+        }
       }
     }
     return result;
   }
-
 }
 

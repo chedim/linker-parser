@@ -7,9 +7,6 @@ import java.lang.annotation.Target;
 
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)
-public @interface OptionalToken {
-  String whenFollowedBy() default "";
-  String whenFieldIsNull() default "";
-  String whenFieldNotNull() default "";
+public @interface ContextAware {
+  String matchField() default "";
 }
-

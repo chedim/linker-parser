@@ -4,6 +4,8 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
@@ -27,6 +29,13 @@ public interface CompoundToken<X> extends PartialToken<X> {
   void onChildFailed();
 
   int unfilledChildren();
+  default boolean hasUnfilledChildren() {
+    return unfilledChildren() > 0;
+  }
+
+  default boolean onlyOneUnfilledChildLeft() {
+    return unfilledChildren() == 1;
+  }
 
   int currentChild();
   void nextChild(int newIndex);
@@ -37,40 +46,36 @@ public interface CompoundToken<X> extends PartialToken<X> {
   PartialToken<?>[] children();
 
   /**
-   * @param children an array of PartialToken objects to replace current token's children with 
+   * @param children an array of PartialToken objects to replace current token's children with
    */
   void children(PartialToken<?>[] children);
 
   Optional<PartialToken<?>> nextChild();
-  
+
   /**
    * Walks through token's children in reverse order removing them until the first child with alternativesLeft() > 0
    * If no such child found, then returns full token source
    * @return source for removed tokens
    */
-  default Optional<CharSequence> traceback() {
+  default void traceback() {
+    log("!!! TRACING BACK");
     PartialToken<?>[] children = children();
     if (children.length == 0) {
       invalidate();
       onFail();
-      return Optional.empty();
+      return;
     }
-    StringBuilder result = new StringBuilder();
     int newSize =  0;
     for (int i = children.length - 1; i > -1; i--) {
       PartialToken<?> child = children[i];
       if (child == null) {
         continue;
       }
-      if (child instanceof CompoundToken) {
-        ((CompoundToken)child).traceback().ifPresent(returned -> result.insert(0, returned.toString()));
-      } else {
-        result.insert(0, child.source().toString());
-      }
 
-      child.invalidate();
+      child.traceback();
 
-      if (child.alternativesLeft() > 0) {
+      if (!child.isFailed()) {
+        log("found alternatives at child#{}", i);
         newSize = i + 1;
         break;
       }
@@ -83,31 +88,30 @@ public interface CompoundToken<X> extends PartialToken<X> {
       System.arraycopy(children, 0, newChildren, 0, newSize);
       children(newChildren);
       nextChild(newSize - 1);
-      log("Traced back to child #{}: {}", newSize, newChildren[newSize-1]);
+      dropPopulated();
+      log("Traced back to child #{}: {}", newSize - 1, newChildren[newSize-1].tag());
     } else {
-      invalidate();
       onFail();
     }
-
-    return Optional.of(result);
-  }
-
-  /**
-   * @return String containing all characters to ignore for this token
-   */
-  default String ignoredCharacters() {
-    return "";
   }
 
   /**
    * @return number of alternatives for this token, including its children
    */
   @Override
-  default int alternativesLeft() {
-    return Arrays.stream(children())
-      .filter(Objects::nonNull)
-      .mapToInt(PartialToken::alternativesLeft)
-      .sum();
+  default boolean alternativesLeft() {
+    PartialToken<?>[] children = children();
+    for (int i = 0; i < children.length; i++) {
+      PartialToken<?> child = children[i];
+      if (child != null) {
+        log("getting alternatives from child#{} {}", i, child.tag());
+        if (child.alternativesLeft()) {
+          log("child#{} {} reported that it has alternatives", i, child.tag());
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   @Override
@@ -131,16 +135,6 @@ public interface CompoundToken<X> extends PartialToken<X> {
   }
 
   default void unrotate() {
-  }
-
-  @Override
-  default CharSequence source() {
-    StringBuilder result = new StringBuilder();
-    Arrays.stream(children())
-      .filter(Objects::nonNull)
-      .map(PartialToken::source)
-      .forEach(result::append);
-    return result;
   }
 
   @Override

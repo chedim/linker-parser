@@ -42,7 +42,7 @@ public interface Rule {
       .map(meta -> {
         do {
           meta = (PartialToken) meta.parent().orElse(null);
-        } while (meta instanceof VariantToken);
+        } while (!(meta instanceof RuleToken));
         return meta;
       })
       .flatMap(PartialToken::token);
@@ -57,12 +57,16 @@ public interface Rule {
       .orElse(false);
   }
 
-  default PartialToken metadata() {
-    return Metadata.metadata(this).orElseThrow(() -> new RuntimeException("Failed to obtain metadata for " + Rule.this));
+  default void onPopulated() {
+
+  }
+
+  default Optional<PartialToken> metadata() {
+    return Metadata.metadata(this);
   }
 
   default ParserLocation location() {
-    return metadata().location();
+    return metadata().map(PartialToken::location).orElse(null);
   }
 
   /**
@@ -79,6 +83,10 @@ public interface Rule {
    */
   default void invalidate() {
   
+  }
+
+  default CharSequence source() {
+    return metadata().map(PartialToken::source).orElse(null);
   }
 }
 

@@ -1,6 +1,7 @@
 package com.onkiup.linker.parser.token;
 
 import java.lang.reflect.Field;
+import java.util.LinkedList;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -16,6 +17,7 @@ public abstract class AbstractToken<X> implements PartialToken<X> {
   private boolean optional, populated, failed;
   private CharSequence optionalCondition;
   private Logger logger;
+  private LinkedList metatokens = new LinkedList();
 
   public AbstractToken(CompoundToken<?> parent, Field targetField, ParserLocation location) {
     this.parent = parent;
@@ -41,8 +43,10 @@ public abstract class AbstractToken<X> implements PartialToken<X> {
     return populated;
   }
 
-  protected void dropPopulated() {
+  @Override
+  public void dropPopulated() {
     populated = false;
+    log("Dropped population flag");
   }
 
   @Override
@@ -53,6 +57,10 @@ public abstract class AbstractToken<X> implements PartialToken<X> {
   @Override
   public ParserLocation location() {
     return location;
+  }
+
+  protected void location(ParserLocation location) {
+    this.location = location;
   }
 
   @Override
@@ -72,8 +80,9 @@ public abstract class AbstractToken<X> implements PartialToken<X> {
 
   @Override
   public void onPopulated(ParserLocation end) {
-    log("populated");
+    log("populated up to {}", end.position());
     populated = true;
+    failed = false;
     this.end = end;
   }
 
@@ -88,14 +97,23 @@ public abstract class AbstractToken<X> implements PartialToken<X> {
   @Override
   public String tag() {
     return targetField()
-        .map(field -> field.getDeclaringClass().getName() + "$" + field.getName())
+        .map(field -> field.getDeclaringClass().getName() + "$" + field.getName() + "(" + position() + ")")
         .orElseGet(super::toString);
   }
 
   @Override
   public String toString() {
+    ParserLocation location = location();
     return targetField()
-        .map(field -> String.format("%-50.50s || %s (position: %d)", tail(50), field.getDeclaringClass().getName() + "$" + field.getName(), position()))
+        .map(field -> String.format(
+            "%50.50s || %s (%d:%d -- %d - %d)",
+            head(50),
+            field.getDeclaringClass().getName() + "$" + field.getName(),
+            location.line(),
+            location.column(),
+            location.position(),
+            end().position()
+        ))
         .orElseGet(super::toString);
   }
 
@@ -107,11 +125,23 @@ public abstract class AbstractToken<X> implements PartialToken<X> {
   @Override
   public void onFail() {
     failed = true;
+    populated = false;
+    end = location;
     PartialToken.super.onFail();
   }
 
   public Optional<CharSequence> optionalCondition() {
     return Optional.ofNullable(optionalCondition);
+  }
+
+  @Override
+  public void addMetaToken(Object metatoken) {
+    metatokens.add(metatoken);
+  }
+
+  @Override
+  public LinkedList<?> metaTokens() {
+    return metatokens;
   }
 }
 

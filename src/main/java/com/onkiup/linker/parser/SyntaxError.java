@@ -11,11 +11,11 @@ import com.onkiup.linker.parser.token.VariantToken;
 
 public class SyntaxError extends RuntimeException {
 
-  private PartialToken expected;
-  private StringBuilder source;
+  private PartialToken<?> expected;
+  private CharSequence source;
   private String message;
 
-  public SyntaxError(String message, PartialToken expected, StringBuilder source) {
+  public SyntaxError(String message, PartialToken expected, CharSequence source) {
     this.message = message;
     this.expected = expected;
     this.source = source;
@@ -29,14 +29,18 @@ public class SyntaxError extends RuntimeException {
       .append("\tExpected ")
       .append(expected)
       .append(" but got: '")
-      .append(expected != null && source != null && expected.position() < source.length() ? source.substring(expected.position()) : source)
+      .append(expected != null && source != null && expected.position() < source.length() ? source.subSequence(expected.position(), source.length()) : source)
       .append("'\n\tSource:\n\t\t")
       .append(source)
-      .append("\n\n\tTraceback:\n\t\t");
+      .append("\n\n\tTraceback:\n");
 
-    PartialToken parent = expected;
-    while (null != (parent = (PartialToken) parent.parent().orElse(null))) {
-      result.append(parent.toString().replace("\n", "\n\t\t"));
+    if (expected != null) {
+      expected.path().stream()
+          .map(PartialToken::toString)
+          .map(text -> text.replaceAll("\n", "\n\t\t") + '\n')
+          .forEach(result::append);
+    } else {
+      result.append("No traceback provided");
     }
 
     return result.toString();
