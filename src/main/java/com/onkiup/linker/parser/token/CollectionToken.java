@@ -1,26 +1,54 @@
 package com.onkiup.linker.parser.token;
 
+import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.annotation.CaptureLimit;
-import com.onkiup.linker.parser.util.LoggerLayout;
 import com.onkiup.linker.parser.util.ParserError;
 
-public class CollectionToken<X> extends AbstractToken<X> implements CompoundToken<X> {
+/**
+ * Token that is used to populate array fields
+ * @param <X> array class of the result token
+ */
+public class CollectionToken<X> extends AbstractToken<X> implements CompoundToken<X>, Serializable {
+  /**
+   * the type of the resulting token
+   */
   private Class<X> fieldType;
+  /**
+   * the type of array members
+   */
   private Class memberType;
+  /**
+   * tokens that represent matched array members
+   */
   private LinkedList<PartialToken> children = new LinkedList<>();
+  /**
+   * maximum number of array members to match
+   */
   private CaptureLimit captureLimit;
+  /**
+   * the position immediately after the end of the last matched token (or CollectionToken's location if no tokens were matched)
+   */
   private ParserLocation lastTokenEnd;
+  /**
+   * index of the next member to match
+   */
   private int nextMember = 0;
 
+  /**
+   * Main constructor
+   * @param parent parent token
+   * @param field field for which this token is constructed
+   * @param tokenType type of the resulting array
+   * @param location location of the token in parser's buffer
+   */
   public CollectionToken(CompoundToken parent, Field field, Class<X> tokenType, ParserLocation location) {
     super(parent, field, location);
     lastTokenEnd = location;
@@ -31,6 +59,9 @@ public class CollectionToken<X> extends AbstractToken<X> implements CompoundToke
     }
   }
 
+  /**
+   * Handler that is invoked every time an array member is populated
+   */
   @Override
   public void onChildPopulated() {
     if (children.size() == 0) {
@@ -49,6 +80,9 @@ public class CollectionToken<X> extends AbstractToken<X> implements CompoundToke
     }
   }
 
+  /**
+   * Callback that handles end-of-input situation by marking the array populated or failed (if number of children is smaller than configured by {@link CaptureLimit} annotation on the target field)
+   */
   @Override
   public void atEnd() {
     log("Force-populating...");
@@ -59,6 +93,9 @@ public class CollectionToken<X> extends AbstractToken<X> implements CompoundToke
     }
   }
 
+  /**
+   * Callback that handles member token matching failure by marking the array populated or failed (if number of children is smaller than configured by {@link CaptureLimit} annotation on the target field)
+   */
   @Override
   public void onChildFailed() {
     if (children.size() == 0) {
@@ -81,11 +118,17 @@ public class CollectionToken<X> extends AbstractToken<X> implements CompoundToke
     }
   }
 
+  /**
+   * @return the type of the resulting array (not it members!)
+   */
   @Override
   public Class<X> tokenType () {
     return fieldType;
   }
 
+  /**
+   * @return matched token
+   */
   @Override
   public Optional<X> token() {
     if (!isPopulated()) {
@@ -98,6 +141,12 @@ public class CollectionToken<X> extends AbstractToken<X> implements CompoundToke
       .toArray(size -> newArray(memberType, size)));
   }
 
+  /**
+   * Creates an array of elements of given type
+   * @param memberType type of the members of the resulting array
+   * @param size the size of the array
+   * @return created array
+   */
   private static final <M> M[] newArray(Class<M> memberType, int size) {
     return (M[]) Array.newInstance(memberType, size);
   }

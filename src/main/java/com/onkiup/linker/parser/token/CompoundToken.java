@@ -1,18 +1,27 @@
 package com.onkiup.linker.parser.token;
 
+import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.TokenGrammar;
 
-public interface CompoundToken<X> extends PartialToken<X> {
+/**
+ * Common interface for any tokens that can contain children tokens
+ * @param <X> the type of resulting token
+ */
+public interface CompoundToken<X> extends PartialToken<X>, Serializable {
 
+  /**
+   * Creates a new CompoundToken for the provided class
+   * @param type class for which new token should be created
+   * @param position position at which the token will be located in the parser's input
+   * @return created CompoundToken
+   */
   static CompoundToken forClass(Class<? extends Rule> type, ParserLocation position) {
     if (position == null) {
       position = new ParserLocation(null, 0, 0, 0);
@@ -24,20 +33,44 @@ public interface CompoundToken<X> extends PartialToken<X> {
     }
   }
 
+  /**
+   * Callback method invoked every time a child token is successfully populated from parser's input
+   */
   void onChildPopulated();
 
+  /**
+   * Callback method invoked every time a child token population fails
+   */
   void onChildFailed();
 
+  /**
+   * @return the number of children left to be filled
+   */
   int unfilledChildren();
+
+  /**
+   * @return true if token contains any unfilled children
+   */
   default boolean hasUnfilledChildren() {
     return unfilledChildren() > 0;
   }
 
+  /**
+   * @return true when this token has only one unfilled child left
+   */
   default boolean onlyOneUnfilledChildLeft() {
     return unfilledChildren() == 1;
   }
 
+  /**
+   * @return the number of currently populating child
+   */
   int currentChild();
+
+  /**
+   * Forces the token to move its internal children pointer so that next populating child will be from the provided position
+   * @param newIndex the position of the child to be populated next
+   */
   void nextChild(int newIndex);
 
   /**
@@ -50,6 +83,9 @@ public interface CompoundToken<X> extends PartialToken<X> {
    */
   void children(PartialToken<?>[] children);
 
+  /**
+   * @return the next child of this token to be populated
+   */
   Optional<PartialToken<?>> nextChild();
 
   /**
@@ -127,16 +163,29 @@ public interface CompoundToken<X> extends PartialToken<X> {
     return result;
   }
 
+  /**
+   * Rotates this token
+   */
   default void rotate() {
   }
 
+  /**
+   * @return true when this token can be rotated
+   */
   default boolean rotatable() {
     return false;
   }
 
+  /**
+   * Performs reverse-rotation on this token
+   */
   default void unrotate() {
   }
 
+  /**
+   * Uses the given visitor to walk over the AST starting with this token
+   * @param visitor token visitor
+   */
   @Override
   default void visit(Consumer<PartialToken<?>> visitor) {
     Arrays.stream(children())

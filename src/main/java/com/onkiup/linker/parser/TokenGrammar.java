@@ -4,12 +4,10 @@ import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
 import java.lang.reflect.Modifier;
-import java.util.Collection;
 import java.util.Enumeration;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import org.apache.log4j.Appender;
 import org.apache.log4j.Layout;
@@ -23,10 +21,11 @@ import com.onkiup.linker.parser.util.LoggerLayout;
 import com.onkiup.linker.parser.util.ParserError;
 import com.onkiup.linker.parser.util.SelfPopulatingBuffer;
 
-import sun.rmi.runtime.Log;
-
-// at 0.2.2:
-// - replaced all "evaluate" flags with context
+/**
+ * Main class for parsing.
+ * Please use {@link #forClass(Class)} to create instances
+ * @param <X> type of the object to parse into.
+ */
 public class TokenGrammar<X extends Rule> {
   private static final Logger logger = LoggerFactory.getLogger("PARSER LOOP");
   private static final ThreadLocal<StringBuilder> BUFFER = new ThreadLocal<>();
@@ -34,10 +33,21 @@ public class TokenGrammar<X extends Rule> {
   private Class metaType;
   private String ignoreTrail;
 
+  /**
+   * Default constructor
+   * @param type resulting token type
+   * @return
+   */
   public static <XX extends Rule> TokenGrammar<XX> forClass(Class<XX> type) {
     return new TokenGrammar<>(type, null);
   }
 
+  /**
+   * For future handling of metatokens like comments
+   * @param type resulting token type
+   * @param metaType meta token type
+   * @return
+   */
   public static <XX extends Rule> TokenGrammar<XX> forClass(Class<XX> type, Class metaType) {
     return new TokenGrammar<>(type, metaType);
   }
@@ -47,29 +57,67 @@ public class TokenGrammar<X extends Rule> {
     this.metaType = metaType;
   }
 
+  /**
+   * @param test Type to test
+   * @return true if the type is not abstract
+   */
   public static boolean isConcrete(Class<?> test) {
     return !(test.isInterface() || Modifier.isAbstract(test.getModifiers()));
   }
 
+  /**
+   * @return resulting token type
+   */
   public Class<X> getTokenType() {
     return type;
   }
 
+  /**
+   * Configures this parser to ignore trailing characters based on the input string
+   * @param chars trailing characters to ignore
+   */
   public void ignoreTrailCharacters(String chars) {
     this.ignoreTrail = chars;
   }
 
+  /**
+   * Parses a string into resulting token
+   * @param source string to parse
+   * @return parsed token
+   * @throws SyntaxError
+   */
   public X parse(String source) throws SyntaxError {
     return parse("unknown", source);
   }
+
+  /**
+   * Parses named string to resulting token
+   * @param name name of the source that will be parsed
+   * @param source contents to parse
+   * @return parsed token
+   * @throws SyntaxError
+   */
   public X parse(String name, String source) throws SyntaxError {
     return parse(name, new StringReader(source));
   }
 
+  /**
+   * Parses contents from a Reader
+   * @param source Reader to get contents from
+   * @return parsed token
+   * @throws SyntaxError
+   */
   public X parse(Reader source) throws SyntaxError {
     return parse("unknown", source);
   }
 
+  /**
+   * Parses named text from a Reader
+   * @param name name of the source
+   * @param source reader to get contents from
+   * @return parsed token
+   * @throws SyntaxError
+   */
   public X parse(String name, Reader source)  throws SyntaxError {
     X result = tokenize(name, source);
     StringBuilder tail = new StringBuilder();
@@ -88,10 +136,23 @@ public class TokenGrammar<X extends Rule> {
     return result;
   }
 
+  /**
+   * Parses contents from the reader
+   * @param source reader to get contents from
+   * @return parsed token
+   * @throws SyntaxError
+   */
   public X tokenize(Reader source) throws SyntaxError {
     return tokenize("unknown", source);
   }
 
+  /**
+   * Main parser entrance
+   * @param sourceName the name of the source that will be parsed
+   * @param source reader to get contents from
+   * @return parsed token
+   * @throws SyntaxError
+   */
   public X tokenize(String sourceName, Reader source) throws SyntaxError {
     AtomicInteger position = new AtomicInteger(0);
     SelfPopulatingBuffer buffer = null;
@@ -203,6 +264,14 @@ public class TokenGrammar<X extends Rule> {
     }
   }
 
+  /**
+   * Tries to recover from a situation where parser populates AST before the whole source is processed by either
+   * validating all trailing characters, rotating root token, or tracing back to the next umtested grammar junction
+   * @param rootToken the root token of failing AST
+   * @param buffer a reference to a buffer with source contents
+   * @param position position in the buffer at which early population occured
+   * @return empty optional if failed to recover, or next consuming token after successfull recovery
+   */
   private Optional<ConsumingToken<?>> processEarlyPopulation(CompoundToken<?> rootToken, CharSequence buffer, int position) {
     logger.debug("Early population detected...");
     if (validateTrailingCharacters(buffer, position)) {
@@ -221,6 +290,12 @@ public class TokenGrammar<X extends Rule> {
     }
   }
 
+  /**
+   * Propagates population event from child token to its parents until parent tokens report they are populated
+   * @param child populated token
+   * @param hitEnd a flag that indicates that parent tokens should not expect any future characters to be consume and should be either populated or failed after receiving this event (not unfailed and unpopulated)
+   * @return next consuming token from the AST or empty when all parents are populated of one of the parents reported to fail and there is no alternatives left
+   */
   private static Optional<ConsumingToken<?>> onPopulated(PartialToken<?> child, boolean hitEnd) {
     return child.parent().flatMap(parent -> {
       parent.onChildPopulated();
@@ -236,6 +311,11 @@ public class TokenGrammar<X extends Rule> {
     });
   }
 
+  /**
+   * Traces back from a failed token to its first parent with left alternatives, then advances to the next available alternative
+   * @param child failed token
+   * @return consuming token from the next available alternative or empty
+   */
   private static Optional<ConsumingToken<?>> processTraceback(PartialToken<?> child) {
     return child.parent().flatMap(parent -> {
       if (child.isFailed()) {
@@ -261,6 +341,11 @@ public class TokenGrammar<X extends Rule> {
     });
   }
 
+  /**
+   * traces back to a first unpopulated parent
+   * @param child token to trace back from
+   * @return the first unpopulated parent
+   */
   private static Optional<CompoundToken<?>> firstUnfilledParent(PartialToken<?> child) {
     logger.debug("traversing back to first unfilled parent from {}", child.tag());
     if (child instanceof CompoundToken && !child.isFailed() && ((CompoundToken<?>)child).unfilledChildren() > 0) {
@@ -289,7 +374,12 @@ public class TokenGrammar<X extends Rule> {
         })
     );
   }
-  
+
+  /**
+   * Advances to the next available consuming token after passed token; traces back any failed tokens it finds while advancing
+   * @param from token to advance from
+   * @return next consuming token
+   */
   public static Optional<ConsumingToken<?>> nextConsumingToken(CompoundToken<?> from) {
     while (from != null) {
       PartialToken<?> child = from.nextChild().orElse(null);
@@ -320,10 +410,22 @@ public class TokenGrammar<X extends Rule> {
     return Optional.empty();
   }
 
+  /**
+   * Advances to the next available consuming token in the parent of provided consuming token
+   * @see #nextConsumingToken(CompoundToken)
+   * @param from consuming token to advance from
+   * @return next consuming token in the AST
+   */
   private static Optional<ConsumingToken<?>> nextConsumingToken(ConsumingToken<?> from) {
     return from.parent().flatMap(TokenGrammar::nextConsumingToken);
   }
 
+  /**
+   * Continuously calls ConsumingToken::consume until the method returns false and then adjusts parser position to
+   * the end of the token
+   * @param token token that should consume characters from parser's buffer
+   * @param position parser position to update with consuming token's end position after the consumption is complete
+   */
   private void processConsumingToken(ConsumingToken<?> token, AtomicInteger position) {
     while (token.consume()) {
       //position.incrementAndGet();
@@ -331,6 +433,12 @@ public class TokenGrammar<X extends Rule> {
     position.set(token.end().position());
   }
 
+  /**
+   * Validates all characters in provided buffer starting with provided position to be in preconfigured ignored trailing characters list
+   * @param buffer buffer to validate
+   * @param from starting position
+   * @return true if all characters starting from provided position can be ighored, false otherwise
+   */
   private boolean validateTrailingCharacters(CharSequence buffer, int from) {
     logger.debug("Validating trailing characters with pattern '{}' on '{}'", LoggerLayout.sanitize(ignoreTrail), LoggerLayout.sanitize(buffer.subSequence(from, buffer.length())));
     if (from >= buffer.length()) {
@@ -346,6 +454,11 @@ public class TokenGrammar<X extends Rule> {
     return result;
   }
 
+  /**
+   * Configures log4j appenders with custom {@link LoggerLayout}
+   * @param buffer parser buffer to display in logs
+   * @param position supplier of current parser position to display in logs
+   */
   private void setupLoggingLayouts(CharSequence buffer, Supplier<Integer> position) {
     Enumeration<Appender> appenders = org.apache.log4j.Logger.getRootLogger().getAllAppenders();
     while(appenders.hasMoreElements()) {
@@ -355,6 +468,9 @@ public class TokenGrammar<X extends Rule> {
     }
   }
 
+  /**
+   * Removes custom {@link LoggerLayout} configurations from log4j appenders
+   */
   private void restoreLoggingLayouts() {
     Enumeration<Appender> appenders = org.apache.log4j.Logger.getRootLogger().getAllAppenders();
     while(appenders.hasMoreElements()) {

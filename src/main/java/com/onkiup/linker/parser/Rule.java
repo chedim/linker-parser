@@ -1,5 +1,10 @@
 package com.onkiup.linker.parser;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,6 +37,20 @@ public interface Rule {
     static void remove(Rule rule) {
       metadata.remove(rule);
     }
+  }
+
+  static <X extends Rule> X load(InputStream is) throws IOException, ClassNotFoundException {
+    ObjectInputStream ois = new ObjectInputStream(is);
+    return load(ois);
+  }
+
+  static <X extends Rule> X load(ObjectInputStream ois) throws IOException, ClassNotFoundException {
+    Object result = ois.readObject();
+    if (result instanceof Rule) {
+      return (X)result;
+    }
+    String resultType = result == null ? "null" : result.getClass().getName();
+    throw new IllegalArgumentException(resultType + " is not a Rule");
   }
 
   /**
@@ -87,6 +106,15 @@ public interface Rule {
 
   default CharSequence source() {
     return metadata().map(PartialToken::source).orElse(null);
+  }
+
+  default void store(OutputStream os) throws IOException {
+    ObjectOutputStream oos = new ObjectOutputStream(os);
+    store(oos);
+  }
+
+  default void store(ObjectOutputStream oos) throws IOException {
+    oos.writeObject(this);
   }
 }
 
