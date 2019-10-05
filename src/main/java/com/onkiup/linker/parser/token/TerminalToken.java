@@ -1,5 +1,6 @@
 package com.onkiup.linker.parser.token;
 
+import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.Objects;
 import java.util.Optional;
@@ -17,8 +18,11 @@ import com.onkiup.linker.parser.annotation.SkipIfFollowedBy;
 import com.onkiup.linker.parser.token.CompoundToken;
 import com.onkiup.linker.parser.util.LoggerLayout;
 
-public class TerminalToken extends AbstractToken<String> implements ConsumingToken<String> {
-  private TokenMatcher matcher;
+/**
+ * A PartialToken used to populate non-rule tokens
+ */
+public class TerminalToken extends AbstractToken<String> implements ConsumingToken<String>, Serializable {
+  private transient TokenMatcher matcher;
   private CharSequence token;
 
   public TerminalToken(CompoundToken parent, Field field, Class tokenType, ParserLocation location) {

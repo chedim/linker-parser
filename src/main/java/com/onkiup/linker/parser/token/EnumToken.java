@@ -1,5 +1,6 @@
 package com.onkiup.linker.parser.token;
 
+import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -17,11 +18,16 @@ import com.onkiup.linker.parser.TokenTestResult;
 import com.onkiup.linker.parser.annotation.CapturePattern;
 import com.onkiup.linker.parser.util.ParserError;
 
-public class EnumToken<X extends Enum & Rule> extends AbstractToken<X> implements ConsumingToken<X> {
+/**
+ * Partial token used to populate Enum fields
+ * TODO: test
+ * @param <X>
+ */
+public class EnumToken<X extends Enum & Rule> extends AbstractToken<X> implements ConsumingToken<X>, Serializable {
 
   private Class<X> enumType;
-  private int nextVariant = 0;
-  private Map<X,TokenMatcher> variants = new HashMap<>();
+  private transient int nextVariant = 0;
+  private transient Map<X,TokenMatcher> variants = new HashMap<>();
   private X token;
   private boolean failed, populated;
   private String ignoreCharacters;

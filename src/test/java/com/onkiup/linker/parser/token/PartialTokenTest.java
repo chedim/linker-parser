@@ -122,10 +122,10 @@ public class PartialTokenTest {
 
     Mockito.when(token.parent()).thenReturn(Optional.of(parent));
     Mockito.when(parent.parent()).thenReturn(Optional.empty());
-    Mockito.when(token.findInTree(Mockito.any())).thenCallRealMethod();
-    Mockito.when(parent.findInTree(Mockito.any())).thenCallRealMethod();
+    Mockito.when(token.findInPath(Mockito.any())).thenCallRealMethod();
+    Mockito.when(parent.findInPath(Mockito.any())).thenCallRealMethod();
 
-    assertEquals(parent, token.findInTree(parent::equals).get());
+    assertEquals(parent, token.findInPath(parent::equals).get());
   }
 
   @Test

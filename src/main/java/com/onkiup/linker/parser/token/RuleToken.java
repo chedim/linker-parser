@@ -1,5 +1,6 @@
 package com.onkiup.linker.parser.token;
 
+import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -14,7 +15,11 @@ import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 import com.onkiup.linker.parser.util.LoggerLayout;
 
-public class RuleToken<X extends Rule> extends AbstractToken<X> implements CompoundToken<X>, Rotatable {
+/**
+ * PartialToken used to populate concrete Rule instances
+ * @param <X>
+ */
+public class RuleToken<X extends Rule> extends AbstractToken<X> implements CompoundToken<X>, Rotatable, Serializable {
   private X token;
   private Class<X> tokenType;
   private Field[] fields;
@@ -22,7 +27,7 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
   private int nextChild = 0;
   private String ignoreCharacters = ""; 
   private boolean rotated = false;
-  private ParserLocation lastTokenEnd;
+  private transient ParserLocation lastTokenEnd;
 
   public RuleToken(CompoundToken parent, Field field, Class<X> type, ParserLocation location) {
     super(parent, field, location);

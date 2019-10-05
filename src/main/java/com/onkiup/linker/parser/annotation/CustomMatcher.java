@@ -7,6 +7,7 @@ import java.lang.annotation.Target;
 
 import com.onkiup.linker.parser.TokenMatcher;
 
+@Deprecated
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)
 public @interface CustomMatcher {

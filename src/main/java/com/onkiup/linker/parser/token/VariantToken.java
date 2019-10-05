@@ -1,5 +1,6 @@
 package com.onkiup.linker.parser.token;
 
+import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.LinkedList;
 import java.util.List;
@@ -23,7 +24,21 @@ import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 import com.onkiup.linker.parser.annotation.IgnoreVariant;
 import com.onkiup.linker.parser.util.ParserError;
 
-public class VariantToken<X extends Rule> extends AbstractToken<X> implements CompoundToken<X> {
+/**
+ * A PartialToken used to resolve grammar junctions (non-concrete rule classes like interfaces and abstract classes)
+ * by iteratively testing each junction variant (concrete non-abstract implementations) until one of them matches parser input
+ * This class is crucial to parser's performance as it implements some key optimizations:
+ *  -- it prevents parser from ascending to left-recursive tokens before non left-recursive tokens by penalizing the former's priorities
+ *  -- it prevents parser from testing left-recursive tokens if same token with same input offset (position) is already in current AST path
+ *  -- it dynamically adjusts junction variant priorities during matching based on how frequently junction variants fail or match, making sure that
+ *      more frequently matched tokens are tested before more rare tokens
+ *  -- it performs basic lexing on parser input by tagging positions in parser buffer as compatible/incompatible. This information becomes crucial
+ *      to parser performance by allowing it to skip previously tested and failed grammar paths after following a non-matching grammar "dead end" paths
+ *
+ *  This class can be additionally optimized by testing grammar junctions concurrently
+ * @param <X> the grammar junction class to be resolved
+ */
+public class VariantToken<X extends Rule> extends AbstractToken<X> implements CompoundToken<X>, Serializable {
 
   private static boolean excludeMatchingParents = true;
 
@@ -32,16 +47,20 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
         .setScanners(new SubTypesScanner(true))
     );
 
+  /**
+   * Dynamic priorities registry
+   */
   private static final ConcurrentHashMap<Class, Integer> dynPriorities = new ConcurrentHashMap<>();
 
   private static final ConcurrentHashMap<PartialToken, ConcurrentHashMap<Integer, ConcurrentHashMap<Class, Boolean>>> tags = new ConcurrentHashMap<>();
 
   private Class<X> tokenType;
   private Class<? extends X>[] variants;
-  private PartialToken<? extends X>[] values;
-  private int nextVariant = 0;
+  private transient PartialToken<? extends X>[] values;
+  private PartialToken<? extends X> result;
+  private transient int nextVariant = 0;
   private String ignoreCharacters = "";
-  private List<Class<? extends X>> tried = new LinkedList<>();
+  private transient List<Class<? extends X>> tried = new LinkedList<>();
 
   public VariantToken(CompoundToken parent, Field field, Class<X> tokenType, ParserLocation location) {
     super(parent, field, location);
@@ -67,7 +86,7 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
             return false;
           }
           if (excludeMatchingParents) {
-            boolean inTree = findInTree(token -> token != null && token.tokenType() == type &&
+            boolean inTree = findInPath(token -> token != null && token.tokenType() == type &&
                 token.location().position() == location.position()).isPresent();
             if (inTree) {
               log("Ignoring variant {} -- already in tree with same position ({})", type.getSimpleName(),
@@ -182,6 +201,12 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
     onPopulated(values[current].end());
   }
 
+  @Override
+  public void onPopulated(ParserLocation end) {
+    super.onPopulated(end);
+    result = values[currentChild()];
+  }
+
   private void storeTag(PartialToken token, boolean result) {
     PartialToken<?> root = root();
     int position = token.position();
@@ -231,6 +256,9 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
 
   @Override
   public Optional<X> token() {
+    if (result != null) {
+      return (Optional<X>)result.token();
+    }
     int current = currentChild();
     if (values[current] == null) {
       return Optional.empty();
@@ -246,6 +274,7 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
   @Override
   public void onFail() {
     log("Tried: {}", tried.stream().map(Class::getSimpleName).collect(Collectors.joining(", ")));
+    result = null;
     super.onFail();
   }
 
@@ -287,7 +316,7 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
       result += 1000;
     }
 
-    if (findInTree(other -> type == other.tokenType()).isPresent()) {
+    if (findInPath(other -> type == other.tokenType()).isPresent()) {
       result += 1000;
     }
 
