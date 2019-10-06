@@ -1,3 +1,5 @@
+[![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.onkiup/linker-parser/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.onkiup/linker-parser)
+
 # linker-parser: JavaCC on steroids.
 Linker-parser is a FSM-backed non-recursive top-down LL(k) parser that uses Java language to define grammar rules. In other words, it accepts Java classes as grammar definitions and instantiates objects from these classes using text it parses as a template.
 
