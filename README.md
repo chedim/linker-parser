@@ -4,6 +4,9 @@ Linker-parser is a FSM-backed non-recursive top-down LL(k) parser that uses Java
 ## But... Why?
 I started this project out of frustration of working with javacc (*Java* *C*ompiler *C*ompiler), which was created decades ago and is very complicated to use. I also didn't want to deal with BNF notations as Java can be used to describe grammars on itself and I love Java :)
 
+## Quickstart guide
+Some basic examples are provided in this README file. More information is available in the [Quickstart Guide](https://github.com/chedim/linker-parser/wiki) in project's wiki.
+
 ## Creating a grammar rule
 Linker-parser grammar rules are defined as Java classes using a set of simple conventions:
 * Each non-transient field of the class represents a token (other rule or a terminal);
