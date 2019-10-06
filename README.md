@@ -6,6 +6,21 @@ Linker-parser is a FSM-backed non-recursive top-down LL(k) parser that uses Java
 ## But... Why?
 I started this project out of frustration of working with javacc (*Java* *C*ompiler *C*ompiler), which was created decades ago and is very complicated to use. I also didn't want to deal with BNF notations as Java can be used to describe grammars on itself and I love Java :)
 
+## Using in your projects
+1. Make sure that your project has `maven-central` configured as artifact source 
+2. For Gradle projects, add the following to your `build.gradle`: 
+   ```gradle
+   compile group: 'com.onkiup', name: 'linker-parser', version: '0.8'
+   ```
+   For Maven projects, add the following to your `pom.xml`:
+   ```xml
+   <dependency>
+       <groupId>com.onkiup</groupId>
+       <artifactId>linker-parser</artifactId>
+       <version>0.8</version>
+   </dependency>
+   ```
+
 ## Quickstart guide
 Some basic examples are provided in this README file. More information is available in the [Quickstart Guide](https://github.com/chedim/linker-parser/wiki) in project's wiki.
 
