@@ -1,51 +1,57 @@
 package com.onkiup.linker.parser.token;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.fail;
+import static junit.framework.TestCase.assertEquals;
+import static junit.framework.TestCase.assertSame;
+import static junit.framework.TestCase.assertTrue;
 
-import java.lang.reflect.Field;
+import java.util.function.Function;
 
 import org.junit.Test;
-import org.junit.validator.ValidateWith;
 import org.mockito.Mockito;
 
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
+import com.onkiup.linker.parser.TokenTestResult;
 import com.onkiup.linker.parser.annotation.CapturePattern;
+import com.onkiup.linker.parser.annotation.IgnoreCase;
 
 public class EnumTokenTest {
 
-  public EnumTokenTest() throws NoSuchFieldException {
+  @IgnoreCase
+  public enum TestEnum implements Rule {
+    ONE, TWO, THREE,
+    @CapturePattern("hello") FOUR;
   }
 
-  public static enum EttEnum implements Rule {
-    ONE,
-    TWO,
-    THREE;
-  }
-
-  public static class EttWrapper {
-    private EttEnum enumValue;
-  }
-
-  private Field enumField = EttWrapper.class.getDeclaredField("enumValue");
+  private TestEnum targetField;
 
   @Test
-  public void testParsing() {
+  public void baseCases() throws Exception {
     CompoundToken parent = Mockito.mock(CompoundToken.class);
-    EnumToken<?> token = new EnumToken(parent, enumField, EttEnum.class, new ParserLocation(null, 0, 0, 0));
-    String source = "TWO";
+    ConsumingToken.ConsumptionState.rootBuffer(parent, "");
+    EnumToken<TestEnum> subject = new EnumToken<TestEnum>(parent, getClass().getDeclaredField("targetField"), TestEnum.class  ,
+        ParserLocation.ZERO);
 
-    for (int i = 0; i < source.length(); i++) {
-      CharSequence returned = token.consume(source.charAt(i)).orElse(null);
-      if (returned != null && returned.length() > 0) {
-        fail("Unexpected buffer return at character#" + i + ": '" + returned);
-      }
-    }
+    Function<CharSequence,TokenTestResult> matcher = subject.tokenMatcher();
 
-    assertEquals(EttEnum.TWO, token.token().get());
+    assertTrue(matcher.apply("ON").isContinue());
+    assertEquals("ONE", matcher.apply("ONE").getToken());
 
-    assertEquals("z", token.consume('z').get());
+    subject.onConsumeSuccess("ONE");
+    assertSame(TestEnum.ONE, subject.token().get());
+    subject.reset();
+
+    assertTrue(matcher.apply("T").isContinue());
+    subject.reset();
+    assertEquals("two", matcher.apply("two").getToken());
+    subject.onConsumeSuccess("two");
+    assertSame(TestEnum.TWO, subject.token().get());
+    subject.reset();
+
+    assertTrue(matcher.apply("HELLO").isMatch());
+    subject.onConsumeSuccess("HELLO");
+    assertEquals("HELLO", matcher.apply("HELLO").getToken());
+    assertSame(TestEnum.FOUR, subject.token().get());
+    subject.reset();
   }
 }

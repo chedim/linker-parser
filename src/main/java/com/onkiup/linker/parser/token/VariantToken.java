@@ -35,7 +35,7 @@ import com.onkiup.linker.parser.util.ParserError;
  *  -- it performs basic lexing on parser input by tagging positions in parser buffer as compatible/incompatible. This information becomes crucial
  *      to parser performance by allowing it to skip previously tested and failed grammar paths after following a non-matching grammar "dead end" paths
  *
- *  This class can be additionally optimized by testing grammar junctions concurrently
+ *  This class can be additionally optimized by implementing concurrent grammar junction testing
  * @param <X> the grammar junction class to be resolved
  */
 public class VariantToken<X extends Rule> extends AbstractToken<X> implements CompoundToken<X>, Serializable {

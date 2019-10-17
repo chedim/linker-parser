@@ -8,6 +8,7 @@ import com.onkiup.linker.parser.annotation.CapturePattern;
 import com.onkiup.linker.parser.annotation.ContextAware;
 import com.onkiup.linker.parser.token.CompoundToken;
 import com.onkiup.linker.parser.util.LoggerLayout;
+import com.onkiup.linker.parser.util.Utils;
 
 @FunctionalInterface
 public interface TokenMatcher extends Function<CharSequence, TokenTestResult> {
@@ -26,6 +27,7 @@ public interface TokenMatcher extends Function<CharSequence, TokenTestResult> {
       throw new IllegalArgumentException("Unsupported field type: " + type);
     }
 
+    boolean ignoreCase = Utils.ignoreCase(field);
     try {
       field.setAccessible(true);
       if (Modifier.isStatic(field.getModifiers())) {
@@ -34,10 +36,10 @@ public interface TokenMatcher extends Function<CharSequence, TokenTestResult> {
           throw new IllegalArgumentException("null terminal");
         }
 
-        return new TerminalMatcher(terminal);
+        return new TerminalMatcher(terminal, ignoreCase);
       } else if (field.isAnnotationPresent(CapturePattern.class)) {
         CapturePattern pattern = field.getAnnotation(CapturePattern.class);
-        return new PatternMatcher(pattern);
+        return new PatternMatcher(pattern, ignoreCase);
       } else if (field.isAnnotationPresent(ContextAware.class)) {
         ContextAware contextAware = field.getAnnotation(ContextAware.class);
         if (contextAware.matchField().length() > 0) {
@@ -48,7 +50,7 @@ public interface TokenMatcher extends Function<CharSequence, TokenTestResult> {
           if (fieldValue instanceof String) {
             parent.log("Creating context-aware matcher for field $" + field.getName() + " to be equal to '" +
                 LoggerLayout.sanitize(fieldValue) + "' value of target field $" + dependency.getName());
-            return new TerminalMatcher((String)fieldValue);
+            return new TerminalMatcher((String)fieldValue, Utils.ignoreCase(field));
           } else if (fieldValue == null) {
             parent.log("Creating context-aware null matcher for field $" + field.getName() + " to be equal to null value of target field $" + dependency.getName());
             return new NullMatcher();

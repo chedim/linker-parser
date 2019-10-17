@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.TestResult;
@@ -79,6 +80,11 @@ public interface ConsumingToken<X> extends PartialToken<X>, Serializable {
   @Override
   default void atEnd() {
     parent().ifPresent(CompoundToken::atEnd);
+  }
+
+  @VisibleForTesting
+  default Function<CharSequence, TokenTestResult> tokenMatcher() {
+    return ConsumptionState.of(this).map(ConsumptionState::tester).orElse(null);
   }
 
   /**
@@ -289,6 +295,10 @@ public interface ConsumingToken<X> extends PartialToken<X>, Serializable {
       token.lookahead(buffer, ignored.position());
       token.log("Lookahead complete");
       token.onFail();
+    }
+
+    public Function<CharSequence, TokenTestResult> tester() {
+      return tester;
     }
 
   }

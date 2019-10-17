@@ -89,9 +89,8 @@ public interface CompoundToken<X> extends PartialToken<X>, Serializable {
   Optional<PartialToken<?>> nextChild();
 
   /**
-   * Walks through token's children in reverse order removing them until the first child with alternativesLeft() > 0
+   * Walks through token's children in reverse order removing them until the first child with alternativesLeft() &gt; 0
    * If no such child found, then returns full token source
-   * @return source for removed tokens
    */
   default void traceback() {
     log("!!! TRACING BACK");

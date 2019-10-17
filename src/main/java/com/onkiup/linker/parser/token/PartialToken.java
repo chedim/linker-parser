@@ -27,8 +27,6 @@ import com.onkiup.linker.parser.annotation.SkipIfFollowedBy;
 import com.onkiup.linker.parser.util.LoggerLayout;
 import com.onkiup.linker.parser.util.ParserError;
 import com.onkiup.linker.parser.util.TextUtils;
-import com.sun.istack.internal.NotNull;
-import com.sun.istack.internal.Nullable;
 
 /**
  * Generic interface for structures used to populate tokens
@@ -43,7 +41,7 @@ public interface PartialToken<X> extends Serializable {
    * @param position token position in parser's buffer
    * @return created PartialToken
    */
-  static PartialToken forField(@Nullable CompoundToken parent, @NotNull Field field, ParserLocation position) {
+  static PartialToken forField(CompoundToken parent, Field field, ParserLocation position) {
 
     if (position == null) {
       throw new ParserError("Child token position cannot be null", parent);
@@ -315,8 +313,7 @@ public interface PartialToken<X> extends Serializable {
   }
 
   /**
-   * Called on failed tokens
-   * @return true if the token should continue consumption, false otherwise
+   * Called on failed tokens. Looks ahead into parser buffer to determine whether this token and its compound parents should be considered optional
    */
   default void lookahead(CharSequence source, int from) {
     log("performing lookahead at position {}", from);
