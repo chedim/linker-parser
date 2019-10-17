@@ -3,7 +3,6 @@ package com.onkiup.linker.parser;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 
-@Deprecated
 public class NumberMatcher implements TokenMatcher {
   private Constructor<? extends Number> pattern;
   private Class<? extends Number> type;
@@ -20,24 +19,25 @@ public class NumberMatcher implements TokenMatcher {
   @Override
   public TokenTestResult apply(CharSequence buffer) {
     try {
-      pattern.newInstance(buffer.toString());
-      return TestResult.matchContinue(buffer.length(), buffer.toString());
+      if (buffer.length() > 0 && buffer.charAt(buffer.length() - 1) == ' ') {
+        // a fix for Number constructors that eat trailing characters
+        throw new InvocationTargetException(new NumberFormatException("--"));
+      }
+
+      return TestResult.matchContinue(buffer.length(), pattern.newInstance(buffer.toString()));
     } catch (InvocationTargetException nfe) {
       Throwable cause = nfe.getCause();
       if (!(cause instanceof NumberFormatException)) {
         return TestResult.fail();
       }
-      if (cause.getMessage().indexOf("out of range") > -1){
+      if (cause.getMessage() != null && cause.getMessage().indexOf("out of range") > -1){
         return TestResult.fail();
       }
       if (buffer.length() > 1) { 
-        // rolling back one character
+        // rolling back one character (under the assumption that buffer accumulation performed on a char-by-char basis)
         try {
-          char drop = buffer.charAt(buffer.length() - 1);
-          if (drop != '.') {
-            Number token = pattern.newInstance(buffer.subSequence(0, buffer.length()));
-            return TestResult.match(buffer.length() - 1, token);
-          } 
+          Number token = pattern.newInstance(buffer.subSequence(0, buffer.length() - 1));
+          return TestResult.match(buffer.length() - 1, token);
         } catch (InvocationTargetException nfe2) {
           if (nfe2.getCause() instanceof NumberFormatException) {
             // this is fine

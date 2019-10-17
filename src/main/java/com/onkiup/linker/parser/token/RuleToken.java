@@ -14,6 +14,7 @@ import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.annotation.IgnoreCharacters;
 import com.onkiup.linker.parser.util.LoggerLayout;
+import com.onkiup.linker.parser.util.Utils;
 
 /**
  * PartialToken used to populate concrete Rule instances
@@ -41,9 +42,8 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
       throw new IllegalArgumentException("Failed to instantiate rule token " + type, e);
     }
 
-    fields = Arrays.stream(type.getDeclaredFields())
-      .filter(childField -> !Modifier.isTransient(childField.getModifiers()))
-      .toArray(Field[]::new);
+    // 0.9:  token inheritance
+    fields = Utils.getTokenFields(type);
 
     values = new PartialToken[fields.length];
 

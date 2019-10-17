@@ -19,6 +19,10 @@ public class PatternMatcher implements TokenMatcher {
   }
 
   public PatternMatcher(CapturePattern pattern) {
+    this(pattern, false);
+  }
+
+  public PatternMatcher(CapturePattern pattern, boolean ignoreCase) {
     String matcherPattern = pattern.pattern();
     if (matcherPattern.length() == 0) {
       String value = pattern.value();
@@ -34,7 +38,7 @@ public class PatternMatcher implements TokenMatcher {
     }
     this.replacement = pattern.replacement();
     this.until = pattern.until();
-    this.pattern = Pattern.compile(matcherPattern);
+    this.pattern = Pattern.compile(matcherPattern, ignoreCase ? Pattern.CASE_INSENSITIVE : 0);
     matcher = this.pattern.matcher("");
   }
 
