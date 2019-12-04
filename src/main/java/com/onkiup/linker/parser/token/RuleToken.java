@@ -6,7 +6,6 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -30,8 +29,8 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
   private boolean rotated = false;
   private transient ParserLocation lastTokenEnd;
 
-  public RuleToken(CompoundToken parent, Field field, Class<X> type, ParserLocation location) {
-    super(parent, field, location);
+  public RuleToken(CompoundToken parent, int position, Field field, Class<X> type, ParserLocation location) {
+    super(parent, position, field, location);
     this.tokenType = type;
     this.lastTokenEnd = location;
 
@@ -102,7 +101,7 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
     if (values[nextChild] == null || values[nextChild].isFailed() || values[nextChild].isPopulated()) {
       Field childField = fields[nextChild];
       log("Creating partial token for child#{} at position {}", nextChild, lastTokenEnd.position());
-      values[nextChild] = PartialToken.forField(this, childField, lastTokenEnd);
+      values[nextChild] = PartialToken.forField(this, nextChild  , childField, lastTokenEnd);
     }
     log("nextChild#{} = {}", nextChild, values[nextChild].tag());
     return Optional.of(values[nextChild++]);
@@ -306,7 +305,7 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
   public void rotateForth() {
     log("Rotating");
     token.invalidate();
-    RuleToken wrap = new RuleToken(this, fields[0], fields[0].getType(), location());
+    RuleToken wrap = new RuleToken(this, 0, fields[0], fields[0].getType(), location());
     wrap.nextChild = nextChild;
     nextChild = 1;
     PartialToken<?>[] wrapValues = wrap.values;
@@ -429,6 +428,19 @@ public class RuleToken<X extends Rule> extends AbstractToken<X> implements Compo
       }
     }
     return result;
+  }
+
+  @Override
+  public int childCount() {
+    return values.length;
+  }
+
+  @Override
+  public Optional<PartialToken<?>> child(int position) {
+    if (position < 0 || position >= values.length) {
+      throw new ArrayIndexOutOfBoundsException();
+    }
+    return Optional.ofNullable(values[position]);
   }
 }
 

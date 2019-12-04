@@ -34,22 +34,24 @@ repositories {
 
 // In this section you declare the dependencies for your production and test code
 dependencies {
-    // The production code uses the SLF4J logging API at compile time
-    compile group: 'org.slf4j', name: 'slf4j-api', version: '1.7.28'
-    compile group: 'org.slf4j', name: 'slf4j-log4j12', version: '1.7.28'
-    // https://mvnrepository.com/artifact/org.reflections/reflections
-    compile group: 'org.reflections', name: 'reflections', version: '0.9.11'
-    compile group: 'org.apache.logging.log4j', name: 'log4j-core', version: '2.12.1'
+  compile "com.onkiup:linker-parser-api:${project.version}"
+
+  // The production code uses the SLF4J logging API at compile time
+  compileOnly group: 'org.slf4j', name: 'slf4j-api', version: '1.7.28'
+  compileOnly group: 'org.slf4j', name: 'slf4j-log4j12', version: '1.7.28'
+  // https://mvnrepository.com/artifact/org.reflections/reflections
+  compileOnly group: 'org.reflections', name: 'reflections', version: '0.9.11'
+  compileOnly group: 'org.apache.logging.log4j', name: 'log4j-core', version: '2.12.1'
 
 
-    // Declare the dependency for your favourite test framework you want to use in your tests.
-    // TestNG is also supported by the Gradle Test task. Just change the
-    // testCompile dependency to testCompile 'org.testng:testng:6.8.1' and add
-    // 'test.useTestNG()' to your build script.
-    testCompile 'junit:junit:4.12'
-    testCompile group: 'org.mockito', name: 'mockito-core', version: '3.0.0'
-    testCompile group: 'org.powermock', name: 'powermock-module-junit4', version: '2.0.2'
-    testCompile group: 'org.powermock', name: 'powermock-api-mockito2', version: '2.0.2'
+  // Declare the dependency for your favourite test framework you want to use in your tests.
+  // TestNG is also supported by the Gradle Test task. Just change the
+  // testCompile dependency to testCompile 'org.testng:testng:6.8.1' and add
+  // 'test.useTestNG()' to your build script.
+  testCompile 'junit:junit:4.12'
+  testCompile group: 'org.mockito', name: 'mockito-core', version: '3.0.0'
+  testCompile group: 'org.powermock', name: 'powermock-module-junit4', version: '2.0.2'
+  testCompile group: 'org.powermock', name: 'powermock-api-mockito2', version: '2.0.2'
 }
 
 task javadocJar(type: Jar) {
@@ -94,7 +96,7 @@ uploadArchives {
       pom.project {
         name 'Linker-Parser'
         packaging 'jar'
-        // optionally artifactId can be defined here 
+        // optionally artifactId can be defined here
         description 'Text parser that uses Java classes as grammar definitions'
         url 'https://github.com/chedim/linker-parser'
 

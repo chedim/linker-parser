@@ -25,8 +25,8 @@ public class TerminalToken extends AbstractToken<String> implements ConsumingTok
   private transient TokenMatcher matcher;
   private CharSequence token;
 
-  public TerminalToken(CompoundToken parent, Field field, Class tokenType, ParserLocation location) {
-    super(parent, field, location);
+  public TerminalToken(CompoundToken parent, int position, Field field, Class tokenType, ParserLocation location) {
+    super(parent, position, field, location);
     this.matcher = TokenMatcher.forField(parent, field, tokenType);
 
     this.setTokenMatcher(matcher);

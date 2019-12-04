@@ -49,8 +49,8 @@ public class CollectionToken<X> extends AbstractToken<X> implements CompoundToke
    * @param tokenType type of the resulting array
    * @param location location of the token in parser's buffer
    */
-  public CollectionToken(CompoundToken parent, Field field, Class<X> tokenType, ParserLocation location) {
-    super(parent, field, location);
+  public CollectionToken(CompoundToken parent, int childIndex, Field field, Class<X> tokenType, ParserLocation location) {
+    super(parent, childIndex, field, location);
     lastTokenEnd = location;
     this.fieldType = tokenType;
     this.memberType = fieldType.getComponentType();
@@ -186,7 +186,7 @@ public class CollectionToken<X> extends AbstractToken<X> implements CompoundToke
     if (captureLimit == null || captureLimit.max() > children.size()) {
       if (nextMember == children.size()) {
         log("creating partial token for member#{}", children.size());
-        current = PartialToken.forField(this, targetField().orElse(null), memberType, lastTokenEnd);
+        current = PartialToken.forField(this, children.size(), targetField().orElse(null), memberType, lastTokenEnd);
         children.add(current);
       } else if (nextMember < children.size()) {
         current = children.get(nextMember);
@@ -272,5 +272,18 @@ public class CollectionToken<X> extends AbstractToken<X> implements CompoundToke
       }
     }
     return result;
+  }
+
+  @Override
+  public int childCount() {
+    return children.size();
+  }
+
+  @Override
+  public Optional<PartialToken<?>> child(int position) {
+    if (position < 0 || position >= children.size()) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(children.get(position));
   }
 }

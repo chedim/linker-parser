@@ -10,11 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import org.reflections.Reflections;
-import org.reflections.scanners.SubTypesScanner;
-import org.reflections.util.ClasspathHelper;
-import org.reflections.util.ConfigurationBuilder;
-
+import com.onkiup.linker.parser.ParserContext;
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
 import com.onkiup.linker.parser.TokenGrammar;
@@ -42,11 +38,6 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
 
   private static boolean excludeMatchingParents = true;
 
-  private static final Reflections reflections  = new Reflections(new ConfigurationBuilder()
-        .setUrls(ClasspathHelper.forClassLoader(TokenGrammar.class.getClassLoader()))
-        .setScanners(new SubTypesScanner(true))
-    );
-
   /**
    * Dynamic priorities registry
    */
@@ -62,8 +53,8 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
   private String ignoreCharacters = "";
   private transient List<Class<? extends X>> tried = new LinkedList<>();
 
-  public VariantToken(CompoundToken parent, Field field, Class<X> tokenType, ParserLocation location) {
-    super(parent, field, location);
+  public VariantToken(CompoundToken parent, int position, Field field, Class<X> tokenType, ParserLocation location) {
+    super(parent, position, field, location);
 
     this.tokenType = tokenType;
     if (TokenGrammar.isConcrete(tokenType)) {
@@ -74,11 +65,15 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
       variants = tokenType.getAnnotation(Alternatives.class).value();
     } else {
       final ConcurrentHashMap<Class, Integer> typePriorities = new ConcurrentHashMap<>();
-      variants = (reflections.getSubTypesOf(tokenType).stream()
+      variants = ParserContext.get().implementations(tokenType)
           .filter(TokenGrammar::isConcrete)
         .filter(type -> {
           if (type.isAnnotationPresent(IgnoreVariant.class)) {
             log("Ignoring variant {} -- marked with @IgnoreVariant", type.getSimpleName());
+            return false;
+          }
+          if (type instanceof NonParseable) {
+            log("Ignoring non-parseable variant {}", type.getSimpleName());
             return false;
           }
           if (isLeftRecursive(type)) {
@@ -116,7 +111,7 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
           }
           return result;
         })
-        .toArray(Class[]::new));
+        .toArray(Class[]::new);
     }
     values = new PartialToken[variants.length];
 
@@ -160,7 +155,7 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
       log("Creating partial token for nextChild#{}", nextVariant);
       updateDynPriority(variants[nextVariant], 10);
       tried.add(variants[nextVariant]);
-      values[nextVariant] = PartialToken.forField(this, targetField().orElse(null), variants[nextVariant], location());
+      values[nextVariant] = PartialToken.forField(this, nextVariant, targetField().orElse(null), variants[nextVariant], location());
     }
 
     log("nextChild#{} = {}", nextVariant, values[nextVariant].tag());
@@ -489,6 +484,16 @@ public class VariantToken<X extends Rule> extends AbstractToken<X> implements Co
       }
     }
     return result;
+  }
+
+  @Override
+  public int childCount() {
+    return 1;
+  }
+
+  @Override
+  public Optional<PartialToken<?>> child(int i) {
+    return Optional.of(values[currentChild()]);
   }
 }
 

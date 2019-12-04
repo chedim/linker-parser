@@ -17,3 +17,5 @@ include 'services:webservice'
 */
 
 rootProject.name = 'linker-parser'
+include 'linker-parser-api'
+

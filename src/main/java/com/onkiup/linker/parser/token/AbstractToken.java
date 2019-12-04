@@ -17,6 +17,7 @@ import com.onkiup.linker.parser.ParserLocation;
 public abstract class AbstractToken<X> implements PartialToken<X>, Serializable {
 
   private CompoundToken<?> parent;
+  private PartialToken<?> previousToken, nextToken;
   /**
    * The field for which this token was created
    */
@@ -35,6 +36,7 @@ public abstract class AbstractToken<X> implements PartialToken<X>, Serializable 
   private CharSequence optionalCondition;
   private transient Logger logger;
   private LinkedList metatokens = new LinkedList();
+  private final int childNumber;
 
   /**
    * Main constructor
@@ -42,12 +44,21 @@ public abstract class AbstractToken<X> implements PartialToken<X>, Serializable 
    * @param targetField field for which this token is being constructed
    * @param location token's location in parser's buffer
    */
-  public AbstractToken(CompoundToken<?> parent, Field targetField, ParserLocation location) {
+  public AbstractToken(CompoundToken<?> parent, int childNumber, Field targetField, ParserLocation location) {
     this.parent = parent;
     this.field = targetField;
     this.location = location;
+    this.childNumber = childNumber;
 
     readFlags(field);
+  }
+
+  public void previousToken(PartialToken<?> previousToken) {
+    this.previousToken = previousToken;
+  }
+
+  public void nextToken(PartialToken<?> nextToken) {
+    this.nextToken = nextToken;
   }
 
   /**
@@ -223,6 +234,21 @@ public abstract class AbstractToken<X> implements PartialToken<X>, Serializable 
   @Override
   public LinkedList<?> metaTokens() {
     return metatokens;
+  }
+
+  @Override
+  public int position() {
+    return childNumber;
+  }
+
+  @Override
+  public Optional<PartialToken<?>> nextToken() {
+    return Optional.empty();
+  }
+
+  @Override
+  public Optional<PartialToken<?>> previousToken() {
+    return Optional.empty();
   }
 }
 

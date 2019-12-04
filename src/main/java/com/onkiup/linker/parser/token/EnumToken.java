@@ -22,6 +22,7 @@ import com.onkiup.linker.parser.TestResult;
 import com.onkiup.linker.parser.TokenMatcher;
 import com.onkiup.linker.parser.TokenTestResult;
 import com.onkiup.linker.parser.annotation.CapturePattern;
+import com.onkiup.linker.parser.annotation.MatchTerminal;
 import com.onkiup.linker.parser.util.ParserError;
 import com.onkiup.linker.parser.util.Utils;
 
@@ -38,17 +39,20 @@ public class EnumToken<X extends Enum & Rule> extends AbstractToken<X> implement
   private List<X> variantKeys;
   private int currentKeyIndex = 0;
 
-  public EnumToken(CompoundToken parent, Field field, Class<X> enumType, ParserLocation location) {
-    super(parent, field, location);
+  public EnumToken(CompoundToken parent, int position, Field field, Class<X> enumType, ParserLocation location) {
+    super(parent, position, field, location);
     this.enumType = enumType;
     boolean ignoreCaseFromTarget = Utils.ignoreCase(field);
 
     for (X variant : enumType.getEnumConstants()) {
       try {
         Field variantField = enumType.getDeclaredField(variant.name());
-        CapturePattern annotation = variantField.getAnnotation(CapturePattern.class);
+        CapturePattern pattern = variantField.getAnnotation(CapturePattern.class);
+        MatchTerminal terminal = variantField.getAnnotation(MatchTerminal.class);
         boolean ignoreCase = ignoreCaseFromTarget || Utils.ignoreCase(variantField);
-        TokenMatcher matcher = annotation == null ? new TerminalMatcher(variant.toString(), ignoreCase) : new PatternMatcher(annotation, ignoreCase);
+        TokenMatcher matcher = pattern != null ? new PatternMatcher(pattern, ignoreCase) :
+            terminal != null ? new TerminalMatcher(terminal.value(), ignoreCase) :
+              new TerminalMatcher(variant.toString(), ignoreCase);
         variants.put(variant, matcher);
       } catch (ParserError pe) {
         throw pe;

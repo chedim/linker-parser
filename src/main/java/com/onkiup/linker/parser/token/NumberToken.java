@@ -11,8 +11,8 @@ public class NumberToken<X extends Number> extends AbstractToken<X> implements C
   private X token;
   private Class<X> tokenType;
 
-  public NumberToken(CompoundToken<?> parent, Field targetField, ParserLocation location) {
-    super(parent, targetField, location);
+  public NumberToken(CompoundToken<?> parent, int position, Field targetField, ParserLocation location) {
+    super(parent, position, targetField, location);
     this.tokenType = (Class<X>)targetField.getType();
 
     setTokenMatcher(new NumberMatcher(tokenType));

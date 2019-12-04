@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,7 +42,7 @@ public class TokenGrammar<X extends Rule> {
   public static <XX extends Rule> TokenGrammar<XX> forClass(Class<XX> type) {
     return new TokenGrammar<>(type, null);
   }
-
+  
   /**
    * For future handling of metatokens like comments
    * @param type resulting token type
@@ -155,6 +156,7 @@ public class TokenGrammar<X extends Rule> {
    */
   public X tokenize(String sourceName, Reader source) throws SyntaxError {
     AtomicInteger position = new AtomicInteger(0);
+    ParserContext.get().classLoader(getTokenType().getClassLoader());
     SelfPopulatingBuffer buffer = null;
     try {
       buffer = new SelfPopulatingBuffer(sourceName, source);
@@ -162,7 +164,7 @@ public class TokenGrammar<X extends Rule> {
       throw new RuntimeException("Failed to read source " + sourceName, e);
     }
     try {
-      CompoundToken<X> rootToken = CompoundToken.forClass(type, new ParserLocation(sourceName, 0, 0, 0));
+      CompoundToken<X> rootToken = CompoundToken.forClass(type, 0, new ParserLocation(sourceName, 0, 0, 0));
       ConsumingToken.ConsumptionState.rootBuffer(rootToken, buffer);
       CompoundToken parent = rootToken;
       ConsumingToken<?> consumer = nextConsumingToken(parent).orElseThrow(() -> new ParserError("No possible consuming tokens found", parent));
@@ -481,6 +483,11 @@ public class TokenGrammar<X extends Rule> {
         appender.setLayout(loggerLayout.parent());
       }
     }
+  }
+
+  public static <X extends Rule> boolean isRule(Class<? extends X> aClass) {
+    return Arrays.stream(aClass.getInterfaces())
+        .anyMatch(Rule.class::equals);
   }
 }
 
