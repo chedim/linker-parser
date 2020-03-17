@@ -16,6 +16,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.onkiup.linker.parser.ParserLocation;
 import com.onkiup.linker.parser.Rule;
@@ -27,8 +28,6 @@ import com.onkiup.linker.parser.annotation.SkipIfFollowedBy;
 import com.onkiup.linker.parser.util.LoggerLayout;
 import com.onkiup.linker.parser.util.ParserError;
 import com.onkiup.linker.parser.util.TextUtils;
-import com.sun.istack.internal.NotNull;
-import com.sun.istack.internal.Nullable;
 
 /**
  * Generic interface for structures used to populate tokens
@@ -43,7 +42,7 @@ public interface PartialToken<X> extends Serializable {
    * @param position token position in parser's buffer
    * @return created PartialToken
    */
-  static PartialToken forField(@Nullable CompoundToken parent, @NotNull Field field, ParserLocation position) {
+  static PartialToken forField(CompoundToken parent, Field field, ParserLocation position) {
 
     if (position == null) {
       throw new ParserError("Child token position cannot be null", parent);
